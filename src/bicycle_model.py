@@ -276,3 +276,22 @@ class BicycleVisualizer(Visualizer):
 
         print("Saving animation to bicycle_simulation.mp4")
         ani.save("bicycle_simulation.mp4", writer="ffmpeg", fps=self.fps)
+
+        # Plot state variables over time
+        time_points = np.arange(0, simulation_time + time_step, time_step)
+        fig2, axs = plt.subplots(4, 1, figsize=(10, 8), sharex=True)
+        axs[0].plot(time_points, [s.x for s in states], label="x")
+        axs[0].set_ylabel("x position")
+        axs[0].legend()
+        axs[1].plot(time_points, [s.y for s in states], label="y")
+        axs[1].set_ylabel("y position")
+        axs[1].legend()
+        axs[2].plot(time_points, [s.theta for s in states], label="theta")
+        axs[2].set_ylabel("theta (rad)")
+        axs[2].legend()
+        axs[3].plot(time_points, [s.velocity for s in states], label="velocity")
+        axs[3].set_ylabel("velocity")
+        axs[3].set_xlabel("time (s)")
+        axs[3].legend()
+        plt.tight_layout()
+        plt.show()

@@ -1,4 +1,4 @@
-from src.interface import State, Input, Model, Controller, Visualizer, SimulateResult
+from src.interface import Controller, Input, Model, SimulateResult, State, Visualizer
 
 
 class Simulator:

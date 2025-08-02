@@ -1,7 +1,8 @@
-import numpy as np
-from .interface import State, Input, Model, Controller, Visualizer, SimulateResult
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib import animation
+
+from .interface import Controller, Input, Model, SimulateResult, State, Visualizer
 
 
 class BicycleState(State):
@@ -199,9 +200,11 @@ class BicycleVisualizer(Visualizer):
         state_x = [state.x for state in states]
         state_y = [state.y for state in states]
 
+        # set car shape parameters
         car_length = self.model.wheelbase
         car_width = 0.5 * car_length
 
+        # Calculate the limits for the plot
         max_x = (max(state_x) if state_x else 0) + car_length
         max_y = (max(state_y) if state_y else 0) + car_length
         min_x = (min(state_x) if state_x else 0) - car_length
@@ -213,8 +216,8 @@ class BicycleVisualizer(Visualizer):
 
         x_len = max_x - min_x
         y_len = max_y - min_y
-        ratio = y_len / x_len  # x_len cant be zero.
-        radius_inch = 12
+        ratio = y_len / x_len  # x_len can't be zero.
+        radius_inch = 12  # 12 inches for the radius of the plot. This is magic number, but i don't care
         x_size = np.sqrt(radius_inch**2 / (1 + ratio**2))
         y_size = ratio * x_size
         fig.set_size_inches(x_size, y_size)

@@ -56,8 +56,8 @@ if __name__ == "__main__":
     )
     vis: Visualizer = BicycleVisualizer(model, fps=30)
 
-    simulator = Simulator(model, controller, simulation_time=10.0, time_step=0.01)
+    simulator = Simulator(model, controller, simulation_time=10.0, time_step=0.001)
 
-    result = simulator.simulate(BicycleState(x=0.0, y=0.0, theta=0.0, velocity=1.0))
+    result = simulator.simulate(BicycleState(x=0.0, y=0.0, theta=0.0, velocity=0.0))
 
     vis.visualize(result)

@@ -51,7 +51,9 @@ if __name__ == "__main__":
     )
 
     model: Model = BicycleModel()
-    controller: Controller = BicycleController(control_time_step=0.01)
+    controller: Controller = BicycleController(
+        model, target_position=(5.0, 5.0), control_time_step=0.01
+    )
     vis: Visualizer = BicycleVisualizer(model, fps=30)
 
     simulator = Simulator(model, controller, simulation_time=10.0, time_step=0.01)

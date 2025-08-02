@@ -50,8 +50,9 @@ class Model(ABC):
 
 class Controller(ABC):
     @abstractmethod
-    def __init__(self, controller_time_step: float = 0.01):
+    def __init__(self, model: Model, controller_time_step: float = 0.01):
         # Initialize controller parameters
+        self.model = model
         self.controller_time_step = controller_time_step
 
     @abstractmethod

@@ -95,20 +95,81 @@ class BicycleModel(Model):
 
 
 class BicycleController(Controller):
-    def __init__(self, target_velocity=1, control_time_step=0.1):
-        super().__init__(control_time_step)
-        self.target_velocity = target_velocity
+    def __init__(
+        self,
+        model: BicycleModel,
+        target_position: tuple[float, float],
+        control_time_step=0.1,
+    ):
+        """Initialize the bicycle controller.
+
+        Args:
+            model (BicycleModel): The bicycle model.
+            target_position (tuple[float, float]): The target position (x, y) for the bicycle.
+            control_time_step (float, optional): The time step for control updates. Defaults to 0.1.
+        """
+        super().__init__(model, control_time_step)
+        self.target_position = target_position
 
     def control(self, state: BicycleState) -> BicycleInput:
-        """
-        Generate control input based on the current state.
+        """Generate control input based on the current state.
 
-        @param state: Current state of the bicycle (State object).
-        @return: Returns the control input (Input object).
+        Args:
+            state (BicycleState): The current state of the bicycle.
+
+        Returns:
+            BicycleInput: _description_
         """
-        steer = 0.1  # Placeholder for steering logic
-        acceleration = self.target_velocity - state.velocity
+
+        target_velocity, steer = self.__ref_controller(
+            state, gamma=1.0, beta=2.9, h=2.0
+        )
+
+        acceleration = 10 * (target_velocity - state.velocity)
         return BicycleInput(steer=steer, acceleration=acceleration)
+
+    def __ref_controller(
+        self, state: BicycleState, gamma: float, beta: float, h: float
+    ) -> tuple[float, float]:
+        """Calculate the reference control inputs for the bicycle model.
+
+        h > 0, 2 < beta < h + 1
+
+        Args:
+            state (BicycleState): Current state of the bicycle.
+            gamma (float): Proportional gain for position control.
+            beta (float): Proportional gain for steering control.
+            h (float): Feedforward gain for steering control.
+
+        Returns:
+            tuple[float, float]: A tuple containing the velocity and steering angle.
+        """
+        tp = self.target_position
+        x = state.x
+        y = state.y
+        theta = state.theta
+
+        pos_error = np.sqrt((tp[0] - x) ** 2 + (tp[1] - y) ** 2)
+        goal_angle = np.arctan2(tp[1] - y, tp[0] - x)
+        steer_error = goal_angle - theta
+
+        velocity = gamma * pos_error
+        if velocity > 5:
+            velocity = 5  # Limit maximum velocity
+
+        c = (
+            np.sin(steer_error)
+            + h * goal_angle * np.sin(steer_error) / (steer_error)
+            + beta * steer_error
+        ) / pos_error
+
+        steer_angle = np.arctan(c * self.model.wheelbase)
+
+        if pos_error < 0.1:  # Stop if close to target
+            steer_angle = 0.0
+            velocity = 0.0
+
+        return velocity, steer_angle
 
 
 class BicycleVisualizer(Visualizer):

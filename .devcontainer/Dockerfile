@@ -3,8 +3,8 @@ FROM python:latest
 
 # Install required packages for poetry, sudo and non-root user creation
 RUN apt-get update && apt-get install -y \
-    curl \
-    sudo \
+    curl            \
+    sudo            \
     ffmpeg          \   
     imagemagick     \  
     libgl1          \  

@@ -40,24 +40,3 @@ class Simulator:
         k3 = self.model.differential(state + k2 * (self.time_step / 2), input_signal)
         k4 = self.model.differential(state + k3 * self.time_step, input_signal)
         return state + (k1 + 2 * k2 + 2 * k3 + k4) * (self.time_step / 6)
-
-
-if __name__ == "__main__":
-    from src.bicycle_model import (
-        BicycleState,
-        BicycleModel,
-        BicycleController,
-        BicycleVisualizer,
-    )
-
-    model: Model = BicycleModel()
-    controller: Controller = BicycleController(
-        model, target_position=(5.0, 5.0), control_time_step=0.1
-    )
-    vis: Visualizer = BicycleVisualizer(model, fps=30)
-
-    simulator = Simulator(model, controller, simulation_time=10.0, time_step=0.001)
-
-    result = simulator.simulate(BicycleState(x=0.0, y=0.0, theta=0.0, velocity=0.0))
-
-    vis.visualize(result)

@@ -1,5 +1,7 @@
 import numpy as np
 from .interface import State, Input, Model, Controller, Visualizer, SimulateResult
+import matplotlib.pyplot as plt
+from matplotlib import animation
 
 
 class BicycleState(State):
@@ -93,7 +95,7 @@ class BicycleModel(Model):
 
 
 class BicycleController(Controller):
-    def __init__(self, target_velocity=1.0, control_time_step=0.01):
+    def __init__(self, target_velocity=1.0, control_time_step=0.1):
         super().__init__(control_time_step)
         self.target_velocity = target_velocity
 
@@ -110,8 +112,10 @@ class BicycleController(Controller):
 
 
 class BicycleVisualizer(Visualizer):
-    def __init__(self, fps: int = 30):
+    def __init__(self, model: BicycleModel, fps: int = 30):
+        """ """
         super().__init__(fps)
+        self.model = model
 
     def visualize(self, data: SimulateResult):
         """
@@ -119,4 +123,83 @@ class BicycleVisualizer(Visualizer):
 
         @param data: Simulation results (SimulateResult object).
         """
-        print("Visualizing simulation results:")
+
+        states, simulation_time, time_step = data.get_results()
+
+        print(f"Visualizing simulation results with {len(states)} states.")
+
+        state_x = [state.x for state in states]
+        state_y = [state.y for state in states]
+
+        car_length = self.model.wheelbase
+        car_width = 0.5 * car_length
+
+        max_x = (max(state_x) if state_x else 0) + car_length
+        max_y = (max(state_y) if state_y else 0) + car_length
+        min_x = (min(state_x) if state_x else 0) - car_length
+        min_y = (min(state_y) if state_y else 0) - car_length
+
+        fig, ax = plt.subplots()
+        ax.set_xlim(min_x, max_x)
+        ax.set_ylim(min_y, max_y)
+
+        x_len = max_x - min_x
+        y_len = max_y - min_y
+        ratio = y_len / x_len  # x_len cant be zero.
+        radius_inch = 12
+        x_size = np.sqrt(radius_inch**2 / (1 + ratio**2))
+        y_size = ratio * x_size
+        fig.set_size_inches(x_size, y_size)
+
+        car = plt.Rectangle(
+            (0, 0), car_length, car_width, angle=0, color="blue", alpha=0.5
+        )
+        ax.add_patch(car)
+
+        def init():
+            car.set_xy((-car_length / 2, -car_width / 2))
+            return (car,)
+
+        x_fps_history = []
+        y_fps_history = []
+        theta_fps_history = []
+        t = 0
+        frame_interval = 1 / self.fps
+        x_fps_history.append(states[0].x)
+        y_fps_history.append(states[0].y)
+        theta_fps_history.append(states[0].theta)
+        for i in range(len(states)):
+            t += time_step
+            if t >= frame_interval:
+                x_fps_history.append(states[i].x)
+                y_fps_history.append(states[i].y)
+                theta_fps_history.append(states[i].theta)
+                t -= frame_interval
+
+        def animate(i):
+            if i < len(x_fps_history):
+                x = x_fps_history[i]
+                y = y_fps_history[i]
+                theta = theta_fps_history[i]
+            else:
+                x = x_fps_history[-1]
+                y = y_fps_history[-1]
+                theta = theta_fps_history[-1]
+            car.set_xy((x - car_length / 2, y - car_width / 2))
+            car.angle = np.degrees(theta)
+
+            return (car,)
+
+        ani = animation.FuncAnimation(
+            fig,
+            animate,
+            frames=len(x_fps_history),
+            init_func=init,
+            interval=1000 * frame_interval,
+            blit=True,
+        )
+
+        print(len(x_fps_history))
+
+        print("Saving animation to bicycle_simulation.mp4")
+        ani.save("bicycle_simulation.mp4", writer="ffmpeg", fps=self.fps)

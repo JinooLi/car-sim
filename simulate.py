@@ -21,7 +21,7 @@ class Simulator:
         t = 0.0
         control_time = 0.0
         result = SimulateResult(self.simulation_time, self.time_step)
-        print(f"Starting simulation with initial position x:{state.x}, y:{state.y}")
+        print(f"Starting simulation")
         result.append_state(state)
         for _ in range(self.time_steps):
             # Update control signal at specified intervals(self.control_time_step)
@@ -29,8 +29,9 @@ class Simulator:
                 input_signal = self.controller.control(state)
                 control_time += self.control_time_step
             state = self.__RK4_step(state, input_signal)
+            result.append_state(state)
             t += self.time_step
-        print(f"Simulation completed. Final position x:{state.x}, y:{state.y}")
+        print(f"Simulation completed.")
         return result
 
     def __RK4_step(self, state: State, input_signal: Input):
@@ -51,7 +52,7 @@ if __name__ == "__main__":
 
     model: Model = BicycleModel()
     controller: Controller = BicycleController(control_time_step=0.01)
-    vis: Visualizer = BicycleVisualizer(fps=30)
+    vis: Visualizer = BicycleVisualizer(model, fps=30)
 
     simulator = Simulator(model, controller, simulation_time=10.0, time_step=0.01)
 

@@ -52,7 +52,7 @@ if __name__ == "__main__":
 
     model: Model = BicycleModel()
     controller: Controller = BicycleController(
-        model, target_position=(5.0, 5.0), control_time_step=0.01
+        model, target_position=(5.0, 5.0), control_time_step=0.1
     )
     vis: Visualizer = BicycleVisualizer(model, fps=30)
 

@@ -122,14 +122,19 @@ class BicycleController(Controller):
         """
 
         target_velocity, steer = self.__ref_controller(
-            state, gamma=1.0, beta=2.9, h=2.0
+            state, max_speed=5.0, gamma=1.0, beta=2.9, h=2.0
         )
 
-        acceleration = 10 * (target_velocity - state.velocity)
+        acceleration = 10 * (target_velocity - state.velocity)  # simple P controller
         return BicycleInput(steer=steer, acceleration=acceleration)
 
     def __ref_controller(
-        self, state: BicycleState, gamma: float, beta: float, h: float
+        self,
+        state: BicycleState,
+        max_speed: float,
+        gamma: float = 1.0,
+        beta: float = 2.9,
+        h: float = 2.0,
     ) -> tuple[float, float]:
         """Calculate the reference control inputs for the bicycle model.
 
@@ -137,6 +142,7 @@ class BicycleController(Controller):
 
         Args:
             state (BicycleState): Current state of the bicycle.
+            max_speed (float): Maximum speed of the bicycle.
             gamma (float): Proportional gain for position control.
             beta (float): Proportional gain for steering control.
             h (float): Feedforward gain for steering control.
@@ -154,8 +160,9 @@ class BicycleController(Controller):
         steer_error = goal_angle - theta
 
         velocity = gamma * pos_error
-        if velocity > 5:
-            velocity = 5  # Limit maximum velocity
+
+        if velocity > max_speed:
+            velocity = max_speed  # Limit maximum velocity
 
         c = (
             np.sin(steer_error)

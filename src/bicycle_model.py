@@ -95,7 +95,7 @@ class BicycleModel(Model):
 
 
 class BicycleController(Controller):
-    def __init__(self, target_velocity=1.0, control_time_step=0.1):
+    def __init__(self, target_velocity=1, control_time_step=0.1):
         super().__init__(control_time_step)
         self.target_velocity = target_velocity
 
@@ -157,7 +157,7 @@ class BicycleVisualizer(Visualizer):
         ax.add_patch(car)
 
         def init():
-            car.set_xy((-car_length / 2, -car_width / 2))
+            car.set_xy((0, -car_width / 2))
             return (car,)
 
         x_fps_history = []
@@ -185,7 +185,7 @@ class BicycleVisualizer(Visualizer):
                 x = x_fps_history[-1]
                 y = y_fps_history[-1]
                 theta = theta_fps_history[-1]
-            car.set_xy((x - car_length / 2, y - car_width / 2))
+            car.set_xy((x, y - car_width / 2))
             car.angle = np.degrees(theta)
 
             return (car,)

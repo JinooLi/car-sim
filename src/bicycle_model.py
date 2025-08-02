@@ -224,13 +224,14 @@ class BicycleVisualizer(Visualizer):
         ax.legend()
 
         car = plt.Rectangle(
-            (0, 0), car_length, car_width, angle=0, color="blue", alpha=0.5
+            (0, -car_width / 2),
+            car_length,
+            car_width,
+            angle=0,
+            color="blue",
+            alpha=0.5,
         )
         ax.add_patch(car)
-
-        def init():
-            car.set_xy((0, -car_width / 2))
-            return (car,)
 
         x_fps_history = []
         y_fps_history = []
@@ -258,6 +259,7 @@ class BicycleVisualizer(Visualizer):
                 y = y_fps_history[-1]
                 theta = theta_fps_history[-1]
             car.set_xy((x, y - car_width / 2))
+            car.rotation_point = (x, y)
             car.angle = np.degrees(theta)
 
             return (car,)
@@ -266,7 +268,6 @@ class BicycleVisualizer(Visualizer):
             fig,
             animate,
             frames=len(x_fps_history),
-            init_func=init,
             interval=1000 * frame_interval,
             blit=True,
         )

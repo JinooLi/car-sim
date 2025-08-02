@@ -219,6 +219,10 @@ class BicycleVisualizer(Visualizer):
         y_size = ratio * x_size
         fig.set_size_inches(x_size, y_size)
 
+        # Plot the trajectory as a line
+        ax.plot(state_x, state_y, color="red", linewidth=2, label="Trajectory")
+        ax.legend()
+
         car = plt.Rectangle(
             (0, 0), car_length, car_width, angle=0, color="blue", alpha=0.5
         )

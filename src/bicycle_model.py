@@ -281,7 +281,7 @@ class BicycleVisualizer(Visualizer):
         ani.save("bicycle_simulation.mp4", writer="ffmpeg", fps=self.fps)
 
         # Plot state variables over time
-        time_points = np.arange(0, simulation_time + time_step, time_step)
+        time_points = np.arange(0, simulation_time, time_step)
         fig2, axs = plt.subplots(4, 1, figsize=(10, 8), sharex=True)
         axs[0].plot(time_points, [s.x for s in states], label="x")
         axs[0].set_ylabel("x position")

@@ -22,7 +22,6 @@ class Simulator:
         control_time = 0.0
         result = SimulateResult(self.simulation_time, self.time_step)
         print(f"Starting simulation")
-        result.append_state(state)
         for _ in range(self.time_steps):
             # Update control signal at specified intervals(self.control_time_step)
             if t >= control_time:

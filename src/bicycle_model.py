@@ -173,6 +173,12 @@ class BicycleController(Controller):
 
         steer_angle = np.arctan(c * self.model.wheelbase)
 
+        steer_limit = np.pi / 6
+        if steer_angle > steer_limit:
+            steer_angle = steer_limit
+        elif steer_angle < -steer_limit:
+            steer_angle = -steer_limit
+
         if pos_error < 0.1:  # Stop if close to target
             steer_angle = 0.0
             velocity = 0.0

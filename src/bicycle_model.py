@@ -100,6 +100,7 @@ class BicycleController(Controller):
         self,
         model: BicycleModel,
         target_position: tuple[float, float],
+        target_angle: float = 0.0,
         control_time_step=0.1,
     ):
         """Initialize the bicycle controller.
@@ -107,10 +108,12 @@ class BicycleController(Controller):
         Args:
             model (BicycleModel): The bicycle model.
             target_position (tuple[float, float]): The target position (x, y) for the bicycle.
+            target_angle (float, optional): The target angle for the bicycle. Defaults to 0.0.
             control_time_step (float, optional): The time step for control updates. Defaults to 0.1.
         """
         super().__init__(model, control_time_step)
         self.target_position = target_position
+        self.target_angle = target_angle
 
     def control(self, state: BicycleState) -> BicycleInput:
         """Generate control input based on the current state.
@@ -122,8 +125,33 @@ class BicycleController(Controller):
             BicycleInput: _description_
         """
 
+        rotation_matrix = np.array(
+            [
+                [np.cos(-self.target_angle), -np.sin(-self.target_angle)],
+                [np.sin(-self.target_angle), np.cos(-self.target_angle)],
+            ]
+        )
+
+        position_vector = np.array([state.x, state.y])
+        target_position_vector = np.array(self.target_position)
+
+        position_transformed = rotation_matrix @ position_vector
+        target_transformed = tuple(rotation_matrix @ target_position_vector)
+
+        state_transformed = BicycleState(
+            x=position_transformed[0],
+            y=position_transformed[1],
+            theta=state.theta - self.target_angle,
+            velocity=state.velocity,
+        )
+
         target_velocity, steer = self.__ref_controller(
-            state, max_speed=5.0, gamma=1.0, beta=2.9, h=2.0
+            state_transformed,
+            max_speed=5.0,
+            target_position=target_transformed,
+            gamma=1.0,
+            beta=2.9,
+            h=2.0,
         )
 
         acceleration = 10 * (target_velocity - state.velocity)  # simple P controller
@@ -133,6 +161,7 @@ class BicycleController(Controller):
         self,
         state: BicycleState,
         max_speed: float,
+        target_position: tuple[float, float] = (0.0, 0.0),
         gamma: float = 1.0,
         beta: float = 2.9,
         h: float = 2.0,
@@ -144,6 +173,7 @@ class BicycleController(Controller):
         Args:
             state (BicycleState): Current state of the bicycle.
             max_speed (float): Maximum speed of the bicycle.
+            target_position (tuple[float, float]): Target position (x, y) for the bicycle.
             gamma (float): Proportional gain for position control.
             beta (float): Proportional gain for steering control.
             h (float): Feedforward gain for steering control.
@@ -151,7 +181,7 @@ class BicycleController(Controller):
         Returns:
             tuple[float, float]: A tuple containing the velocity and steering angle.
         """
-        tp = self.target_position
+        tp = target_position
         x = state.x
         y = state.y
         theta = state.theta
@@ -167,7 +197,7 @@ class BicycleController(Controller):
 
         c = (
             np.sin(steer_error)
-            + h * goal_angle * np.sin(steer_error) / (steer_error)
+            + h * goal_angle * np.sin(steer_error) / steer_error
             + beta * steer_error
         ) / pos_error
 

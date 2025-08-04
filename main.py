@@ -15,7 +15,10 @@ model: Model = BicycleModel()
 
 def simulate_once():
     controller: Controller = BicycleController(
-        model, target_position=(-3.0, -4.0), control_time_step=0.1
+        model,
+        target_position=(10.0, 10.0),
+        target_angle=0,
+        control_time_step=0.1,
     )
     vis: Visualizer = BicycleVisualizer(model, fps=30)
 

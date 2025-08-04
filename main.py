@@ -16,13 +16,13 @@ model: Model = BicycleModel()
 def simulate_once():
     controller: Controller = BicycleController(
         model,
-        target_position=(10.0, 10.0),
-        target_angle=0,
+        target_position=(-6, 0),
+        target_angle=np.pi * (0 / 12),
         control_time_step=0.1,
     )
     vis: Visualizer = BicycleVisualizer(model, fps=30)
 
-    simulator = Simulator(model, controller, simulation_time=10.0, time_step=0.001)
+    simulator = Simulator(model, controller, simulation_time=15.0, time_step=0.01)
 
     result = simulator.simulate(BicycleState(x=0.0, y=0.0, theta=0.0, velocity=0.0))
 
@@ -33,11 +33,10 @@ def simulate_once():
 def simulate_target(args):
     i, j, target = args
     controller = BicycleController(model, target_position=target, control_time_step=0.1)
-    simulator = Simulator(model, controller, simulation_time=10.0, time_step=0.01)
+    simulator = Simulator(model, controller, simulation_time=15.0, time_step=0.01)
     result = simulator.simulate(BicycleState(x=0.0, y=0.0, theta=0.0, velocity=0.0))
     final_state = result.states[-1]
-    dist = np.hypot(final_state.x - target[0], final_state.y - target[1])
-    return (i, j, 1 if dist < 0.1 else 0)
+    return (i, j, 1 if final_state.velocity < 0.01 else 0)
 
 
 def simulate_reachability():

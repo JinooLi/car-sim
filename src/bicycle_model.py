@@ -189,6 +189,9 @@ class BicycleController(Controller):
         pos_error = np.sqrt((tp[0] - x) ** 2 + (tp[1] - y) ** 2)
         goal_angle = np.arctan2(tp[1] - y, tp[0] - x)
         steer_error = goal_angle - theta
+        steer_error = np.arctan2(
+            np.sin(steer_error), np.cos(steer_error)
+        )  # Normalize steer error
 
         velocity = gamma * pos_error
 
@@ -204,12 +207,9 @@ class BicycleController(Controller):
         steer_angle = np.arctan(c * self.model.wheelbase)
 
         steer_limit = np.pi / 6
-        if steer_angle > steer_limit:
-            steer_angle = steer_limit
-        elif steer_angle < -steer_limit:
-            steer_angle = -steer_limit
+        steer_angle = np.clip(steer_angle, -steer_limit, steer_limit)
 
-        if pos_error < 0.1:  # Stop if close to target
+        if np.hypot(pos_error, steer_error) < 0.15:  # Stop if close to target
             steer_angle = 0.0
             velocity = 0.0
 
@@ -260,6 +260,7 @@ class BicycleVisualizer(Visualizer):
 
         # Plot the trajectory as a line
         ax.plot(state_x, state_y, color="red", linewidth=2, label="Trajectory")
+        ax.grid()
         ax.legend()
 
         car = plt.Rectangle(

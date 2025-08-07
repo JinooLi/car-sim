@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import sympy as sp
+from cvxopt import matrix, solvers
 from matplotlib import animation
 
 from .interface import Controller, Input, Model, SimulateResult, State, Visualizer
@@ -101,7 +103,7 @@ class BicycleController(Controller):
         model: BicycleModel,
         target_position: tuple[float, float],
         target_angle: float = 0.0,
-        control_time_step=0.1,
+        controller_time_step=0.1,
     ):
         """Initialize the bicycle controller.
 
@@ -109,9 +111,10 @@ class BicycleController(Controller):
             model (BicycleModel): The bicycle model.
             target_position (tuple[float, float]): The target position (x, y) for the bicycle.
             target_angle (float, optional): The target angle for the bicycle. Defaults to 0.0.
-            control_time_step (float, optional): The time step for control updates. Defaults to 0.1.
+            controller_time_step (float, optional): The time step for control updates. Defaults to 0.1.
         """
-        super().__init__(model, control_time_step)
+        super().__init__(model, controller_time_step)
+        self.__init_safety_filter()
         self.target_position = target_position
         self.target_angle = target_angle
 
@@ -125,6 +128,7 @@ class BicycleController(Controller):
             BicycleInput: _description_
         """
 
+        # Rotate the state and target position to align with the target angle
         rotation_matrix = np.array(
             [
                 [np.cos(-self.target_angle), -np.sin(-self.target_angle)],
@@ -153,6 +157,11 @@ class BicycleController(Controller):
             beta=2.9,
             h=2.0,
         )
+
+        target_velocity, steer = self.__safety_filter(state, target_velocity, steer)
+
+        target_velocity = np.clip(target_velocity, 0.0, 5.0)  # Limit max speed
+        steer = np.clip(steer, -np.pi / 6, np.pi / 6)  # Limit steering angle
 
         acceleration = 10 * (target_velocity - state.velocity)  # simple P controller
         return BicycleInput(steer=steer, acceleration=acceleration)
@@ -214,6 +223,155 @@ class BicycleController(Controller):
             velocity = 0.0
 
         return velocity, steer_angle
+
+    def __init_safety_filter(self):
+        """Initialize the safety filter parameters."""
+        t = sp.symbols("t")
+        a = sp.symbols("a", real=True)
+        omega = sp.symbols("omega", real=True)
+        l = sp.symbols("l", real=True, positive=True)
+        x = sp.Function("x", real=True)(t)
+        y = sp.Function("y", real=True)(t)
+        v = sp.Function("v", real=True)(t)
+        phi = sp.Function("phi", real=True)(t)
+        psi = sp.Function("psi", real=True)(t)
+
+        dotx = v * sp.cos(phi)
+        doty = v * sp.sin(phi)
+        dotphi = v * sp.tan(psi) / l
+        dotv = a
+        dotpsi = omega
+
+        h = sp.Function("h", real=True)(x, y)
+        k1 = sp.symbols("k1", real=True)
+        k2 = sp.symbols("k2", real=True)
+        k3 = sp.symbols("k3", real=True)
+
+        # Define the safety condition
+        h = (x - 4) ** 2 + (y - 4) ** 2 - 2**2
+        self.h = sp.lambdify((x, y), h, modules="numpy")
+
+        # Define differential equations
+        substitutions = {
+            x.diff(t): dotx,
+            y.diff(t): doty,
+            phi.diff(t): dotphi,
+            v.diff(t): dotv,
+            psi.diff(t): dotpsi,
+        }
+
+        h_1 = h.diff(t) + k1 * h
+        h_1 = h_1.subs(substitutions)
+        h_2 = h_1.diff(t) + k2 * h_1
+        h_2 = h_2.subs(substitutions).simplify()
+        h_3 = h_2.diff(t) + k3 * h_2
+        h_3 = h_3.subs(substitutions).simplify()
+
+        # t에 대한 function들을 모두 변수로 치환
+        substitutions = {
+            x: sp.symbols("x", real=True),
+            y: sp.symbols("y", real=True),
+            v: sp.symbols("v", real=True),
+            phi: sp.symbols("phi", real=True),
+            psi: sp.symbols("psi", real=True),
+        }
+
+        x = sp.symbols("x", real=True)
+        y = sp.symbols("y", real=True)
+        v = sp.symbols("v", real=True)
+        phi = sp.symbols("phi", real=True)
+        psi = sp.symbols("psi", real=True)
+
+        h_3 = h_3.subs(substitutions)
+
+        constant_term = h_3.subs({a: 0, omega: 0})
+        coeff_a = (h_3 - h_3.subs({a: 0})).simplify().subs({a: 1})
+        coeff_omega = (h_3 - h_3.subs({omega: 0})).simplify().subs({omega: 1})
+
+        input_symbols = (k1, k2, k3, l, phi, psi, x, y, v)
+        self.__coeff_a = sp.lambdify(input_symbols, coeff_a, modules="numpy")
+        self.__coeff_omega = sp.lambdify(input_symbols, coeff_omega, modules="numpy")
+        self.__constant_term = sp.lambdify(
+            input_symbols, constant_term, modules="numpy"
+        )
+
+        self.__prev_velocity = 0.0
+        self.__prev_steer_angle = 0.0
+
+    def __safety_filter(
+        self, state: BicycleState, input_velocity: float, input_steer_angle: float
+    ) -> tuple[float, float]:
+        """Safety filter to ensure the bicycle does not exceed certain limits.
+
+        Args:
+            state (BicycleState): The current state of the bicycle.
+            input_velocity (float): The current velocity of the bicycle.
+            input_steer_angle (float): The current steering angle of the bicycle.
+
+        Returns:
+            tuple[float, float]: A tuple containing the filtered velocity and steering angle.
+        """
+        # Assume the acceleration and steer angular velocity by the difference from previous input
+        a_nom = (input_velocity - self.__prev_velocity) / self.controller_time_step
+        omega_nom = (input_steer_angle - self.__prev_steer_angle) / self.controller_time_step
+
+        u_nom = np.array(
+            [
+                [a_nom],
+                [omega_nom],
+            ]
+        )
+
+        P = np.array(
+            [
+                [1.0, 0],
+                [0, 1.0],
+            ]
+        )
+        q = -(2 * u_nom.T @ P).T
+        coeff_inputs = (
+            2,
+            2,
+            2,
+            self.model.wheelbase,
+            state.theta,
+            input_steer_angle,
+            state.x,
+            state.y,
+            state.velocity,
+        )
+        G = np.array(
+            [
+                [
+                    -self.__coeff_a(*coeff_inputs),
+                    -self.__coeff_omega(*coeff_inputs),
+                ]
+            ]
+        )
+        h = np.array([[-self.__constant_term(*coeff_inputs)]])
+
+        solvers.options["show_progress"] = False
+        sol = solvers.qp(P=matrix(P), q=matrix(q), G=matrix(G), h=matrix(h))
+        if sol["status"] != "optimal":
+            print("Warning: Safety filter did not find an optimal solution.")
+            velocity = input_velocity
+            steer_angle = input_steer_angle
+        else:
+            filtered_input = np.array(sol["x"]).flatten()
+            velocity = (
+                self.__prev_velocity + self.controller_time_step * filtered_input[0]
+            )
+            steer_angle = (
+                self.__prev_steer_angle + self.controller_time_step * filtered_input[1]
+            )
+
+        self.__prev_velocity = velocity
+        self.__prev_steer_angle = steer_angle
+        print("state:{state.x:.2f}, {state.y:.2f}, {state.theta:.2f}, {state.velocity:.2f}")
+        print(
+            f"Safety filter: velocity={velocity:.2f}, steer_angle={steer_angle:.2f}"
+        )
+        return velocity, steer_angle  # Placeholder for safety filter logic
 
 
 class BicycleVisualizer(Visualizer):

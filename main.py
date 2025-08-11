@@ -18,7 +18,7 @@ def simulate_once():
         model,
         target_position=(-6, 0),
         target_angle=np.pi * (0 / 12),
-        control_time_step=0.1,
+        controller_time_step=0.1,
     )
     vis: Visualizer = BicycleVisualizer(model, fps=30)
 

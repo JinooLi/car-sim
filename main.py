@@ -16,11 +16,13 @@ model: Model = BicycleModel()
 def simulate_once():
     controller: Controller = BicycleController(
         model,
-        target_position=(-6, 0),
-        target_angle=np.pi * (0 / 12),
-        controller_time_step=0.1,
+        target_position=(10, 10),
+        target_angle=np.pi * (3 / 12),
+        controller_time_step=0.01,
+        filter=False,
+        steer_limit=True,
     )
-    vis: Visualizer = BicycleVisualizer(model, fps=30)
+    vis: Visualizer = BicycleVisualizer(model, fps=30, filter=True)
 
     simulator = Simulator(model, controller, simulation_time=15.0, time_step=0.01)
 

@@ -104,6 +104,8 @@ class BicycleController(Controller):
         target_position: tuple[float, float],
         target_angle: float = 0.0,
         controller_time_step=0.1,
+        filter: bool = True,
+        steer_limit: bool = True,
     ):
         """Initialize the bicycle controller.
 
@@ -117,6 +119,8 @@ class BicycleController(Controller):
         self.__init_safety_filter()
         self.target_position = target_position
         self.target_angle = target_angle
+        self.filter = filter
+        self.steer_limit = steer_limit
 
     def control(self, state: BicycleState) -> BicycleInput:
         """Generate control input based on the current state.
@@ -158,10 +162,24 @@ class BicycleController(Controller):
             h=2.0,
         )
 
-        target_velocity, steer = self.__safety_filter(state, target_velocity, steer)
+        if self.filter:
+            target_velocity, steer = self.__safety_filter(state, target_velocity, steer)
 
         target_velocity = np.clip(target_velocity, 0.0, 5.0)  # Limit max speed
-        steer = np.clip(steer, -np.pi / 6, np.pi / 6)  # Limit steering angle
+        if self.steer_limit:  # Limit steering angle
+            steer = np.clip(steer, -np.pi / 6, np.pi / 6)
+
+        pos_error = np.hypot(
+            self.target_position[0] - state.x,
+            self.target_position[1] - state.y,
+        )
+        angle_error = np.atan2(
+            np.sin(self.target_angle - state.theta),
+            np.cos(self.target_angle - state.theta),
+        )
+        if np.hypot(pos_error, angle_error) < 0.15:  # Stop if close to target
+            steer = 0.0
+            target_velocity = 0.0
 
         acceleration = 10 * (target_velocity - state.velocity)  # simple P controller
         return BicycleInput(steer=steer, acceleration=acceleration)
@@ -214,13 +232,6 @@ class BicycleController(Controller):
         ) / pos_error
 
         steer_angle = np.arctan(c * self.model.wheelbase)
-
-        steer_limit = np.pi / 6
-        steer_angle = np.clip(steer_angle, -steer_limit, steer_limit)
-
-        if np.hypot(pos_error, steer_error) < 0.15:  # Stop if close to target
-            steer_angle = 0.0
-            velocity = 0.0
 
         return velocity, steer_angle
 
@@ -375,10 +386,11 @@ class BicycleController(Controller):
 
 
 class BicycleVisualizer(Visualizer):
-    def __init__(self, model: BicycleModel, fps: int = 30):
+    def __init__(self, model: BicycleModel, fps: int = 30, filter: bool = True):
         """ """
         super().__init__(fps)
         self.model = model
+        self.filter = filter
 
     def visualize(self, data: SimulateResult):
         """
@@ -430,6 +442,9 @@ class BicycleVisualizer(Visualizer):
             alpha=0.5,
         )
         ax.add_patch(car)
+        if self.filter:
+            circle = plt.Circle((4, 4), 3, color="red")
+            ax.add_patch(circle)
 
         x_fps_history = []
         y_fps_history = []

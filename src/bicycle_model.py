@@ -237,6 +237,7 @@ class BicycleController(Controller):
 
     def __init_safety_filter(self):
         """Initialize the safety filter parameters."""
+        print("Initializing safety filter...")
         t = sp.symbols("t")
         a = sp.symbols("a", real=True)
         omega = sp.symbols("omega", real=True)
@@ -259,7 +260,7 @@ class BicycleController(Controller):
         k3 = sp.symbols("k3", real=True)
 
         # Define the safety condition
-        h = (x - 4) ** 2 + (y - 4) ** 2 - 2**2
+        h = (x - 4) ** 2 + (y - 4) ** 2 - 3**2
         self.h = sp.lambdify((x, y), h, modules="numpy")
 
         # Define differential equations
@@ -308,9 +309,13 @@ class BicycleController(Controller):
 
         self.__prev_velocity = 0.0
         self.__prev_steer_angle = 0.0
+        print("Safety filter initialized.")
 
     def __safety_filter(
-        self, state: BicycleState, input_velocity: float, input_steer_angle: float
+        self,
+        state: BicycleState,
+        input_velocity: float,
+        input_steer_angle: float,
     ) -> tuple[float, float]:
         """Safety filter to ensure the bicycle does not exceed certain limits.
 
@@ -323,8 +328,10 @@ class BicycleController(Controller):
             tuple[float, float]: A tuple containing the filtered velocity and steering angle.
         """
         # Assume the acceleration and steer angular velocity by the difference from previous input
-        a_nom = (input_velocity - self.__prev_velocity) / self.controller_time_step
-        omega_nom = (input_steer_angle - self.__prev_steer_angle) / self.controller_time_step
+        a_nom = (input_velocity - state.velocity) / self.controller_time_step
+        omega_nom = (
+            input_steer_angle - self.__prev_steer_angle
+        ) / self.controller_time_step
 
         u_nom = np.array(
             [
@@ -333,17 +340,14 @@ class BicycleController(Controller):
             ]
         )
 
-        P = np.array(
-            [
-                [1.0, 0],
-                [0, 1.0],
-            ]
-        )
+        # argmin_u: (u-u_nom)@P@(u-u_nom)
+        # st. Gu <= h
+        P = np.identity(2)
         q = -(2 * u_nom.T @ P).T
         coeff_inputs = (
-            2,
-            2,
-            2,
+            10,  # alpha 1
+            10,  # alpha 2
+            2,  # alpha 3
             self.model.wheelbase,
             state.theta,
             input_steer_angle,
@@ -359,7 +363,7 @@ class BicycleController(Controller):
                 ]
             ]
         )
-        h = np.array([[-self.__constant_term(*coeff_inputs)]])
+        h = np.array([[self.__constant_term(*coeff_inputs)]])
 
         solvers.options["show_progress"] = False
         sol = solvers.qp(P=matrix(P), q=matrix(q), G=matrix(G), h=matrix(h))
@@ -376,12 +380,12 @@ class BicycleController(Controller):
                 self.__prev_steer_angle + self.controller_time_step * filtered_input[1]
             )
 
-        self.__prev_velocity = velocity
+        self.__prev_velocity = state.velocity
         self.__prev_steer_angle = steer_angle
-        print("state:{state.x:.2f}, {state.y:.2f}, {state.theta:.2f}, {state.velocity:.2f}")
         print(
-            f"Safety filter: velocity={velocity:.2f}, steer_angle={steer_angle:.2f}"
+            f"state:{state.x:.2f}, {state.y:.2f}, {state.theta:.2f}, {state.velocity:.2f}"
         )
+        print(f"Safety filter: velocity={velocity:.2f}, steer_angle={steer_angle:.2f}")
         return velocity, steer_angle  # Placeholder for safety filter logic
 
 
@@ -484,8 +488,6 @@ class BicycleVisualizer(Visualizer):
             interval=1000 * frame_interval,
             blit=True,
         )
-
-        print(len(x_fps_history))
 
         print("Saving animation to bicycle_simulation.mp4")
         ani.save("bicycle_simulation.mp4", writer="ffmpeg", fps=self.fps)

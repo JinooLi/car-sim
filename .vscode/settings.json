@@ -1,5 +1,24 @@
 {
-    "cSpell.words": [
-        "dstate"
-    ]
+  "cSpell.words": [
+    "arctan",
+    "argmin",
+    "blit",
+    "cmap",
+    "coeff",
+    "colorbar",
+    "cvxopt",
+    "dotphi",
+    "dotpsi",
+    "dotv",
+    "dstate",
+    "figsize",
+    "imshow",
+    "lambdify",
+    "meshgrid",
+    "sharex",
+    "xlabel",
+    "xlim",
+    "ylabel",
+    "ylim"
+  ]
 }

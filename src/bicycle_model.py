@@ -4,7 +4,15 @@ import sympy as sp
 from cvxopt import matrix, solvers
 from matplotlib import animation
 
-from .interface import Controller, Input, Model, SimulateResult, State, Visualizer
+from .interface import (
+    Controller,
+    Input,
+    Model,
+    SimulateResult,
+    State,
+    Simulator,
+    Visualizer,
+)
 
 
 class BicycleState(State):
@@ -106,6 +114,9 @@ class BicycleController(Controller):
         controller_time_step=0.1,
         filter: bool = True,
         steer_limit: bool = True,
+        k1: float = 10.0,
+        k2: float = 10.0,
+        k3: float = 5.0,
     ):
         """Initialize the bicycle controller.
 
@@ -116,11 +127,12 @@ class BicycleController(Controller):
             controller_time_step (float, optional): The time step for control updates. Defaults to 0.1.
         """
         super().__init__(model, controller_time_step)
-        self.__init_safety_filter()
+        self.__init_safety_filter(k1, k2, k3)
         self.target_position = target_position
         self.target_angle = target_angle
         self.filter = filter
         self.steer_limit = steer_limit
+        self.barrier_data = []
 
     def control(self, state: BicycleState) -> BicycleInput:
         """Generate control input based on the current state.
@@ -241,18 +253,18 @@ class BicycleController(Controller):
 
         return velocity, steer_angle
 
-    def __init_safety_filter(self):
+    def __init_safety_filter(self, k1: float, k2: float, k3: float):
         """Initialize the safety filter parameters."""
         print("Initializing safety filter...")
         t = sp.symbols("t")
         a = sp.symbols("a", real=True)
         omega = sp.symbols("omega", real=True)
-        l = sp.symbols("l", real=True, positive=True)
         x = sp.Function("x", real=True)(t)
         y = sp.Function("y", real=True)(t)
-        v = sp.Function("v", real=True)(t)
-        phi = sp.Function("phi", real=True)(t)
-        psi = sp.Function("psi", real=True)(t)
+        v = sp.Function("v", real=True)(t)  # velocity
+        phi = sp.Function("phi", real=True)(t)  # heading angle
+        psi = sp.Function("psi", real=True)(t)  # steering angle
+        l = self.model.wheelbase
 
         dotx = v * sp.cos(phi)
         doty = v * sp.sin(phi)
@@ -261,13 +273,12 @@ class BicycleController(Controller):
         dotpsi = omega
 
         h = sp.Function("h", real=True)(x, y)
-        k1 = sp.symbols("k1", real=True)
-        k2 = sp.symbols("k2", real=True)
-        k3 = sp.symbols("k3", real=True)
+
+        input_symbols = (x, y, v, phi, psi, a, omega)
 
         # Define the safety condition
         h = (x - 4) ** 2 + (y - 4) ** 2 - 3**2
-        self.h = sp.lambdify((x, y), h, modules="numpy")
+        self.h = sp.lambdify(input_symbols, h, modules="numpy")
 
         # Define differential equations
         substitutions = {
@@ -280,10 +291,13 @@ class BicycleController(Controller):
 
         h_1 = h.diff(t) + k1 * h
         h_1 = h_1.subs(substitutions)
+        self.h1 = sp.lambdify(input_symbols, h_1, modules="numpy")
         h_2 = h_1.diff(t) + k2 * h_1
         h_2 = h_2.subs(substitutions).simplify()
+        self.h2 = sp.lambdify(input_symbols, h_2, modules="numpy")
         h_3 = h_2.diff(t) + k3 * h_2
         h_3 = h_3.subs(substitutions).simplify()
+        self.h3 = sp.lambdify(input_symbols, h_3, modules="numpy")
 
         # t에 대한 function들을 모두 변수로 치환
         substitutions = {
@@ -306,7 +320,7 @@ class BicycleController(Controller):
         coeff_a = (h_3 - h_3.subs({a: 0})).simplify().subs({a: 1})
         coeff_omega = (h_3 - h_3.subs({omega: 0})).simplify().subs({omega: 1})
 
-        input_symbols = (k1, k2, k3, l, phi, psi, x, y, v)
+        input_symbols = (phi, psi, x, y, v)
         self.__coeff_a = sp.lambdify(input_symbols, coeff_a, modules="numpy")
         self.__coeff_omega = sp.lambdify(input_symbols, coeff_omega, modules="numpy")
         self.__constant_term = sp.lambdify(
@@ -352,10 +366,6 @@ class BicycleController(Controller):
         P = np.identity(2)
         q = -(2 * u_nom.T @ P).T
         coeff_inputs = (
-            10,  # alpha 1
-            10,  # alpha 2
-            2,  # alpha 3
-            self.model.wheelbase,
             state.theta,
             input_steer_angle,
             state.x,
@@ -390,7 +400,85 @@ class BicycleController(Controller):
             f"state:{state.x:.2f}, {state.y:.2f}, {state.theta:.2f}, {state.velocity:.2f}"
         )
         print(f"Safety filter: velocity={velocity:.2f}, steer_angle={steer_angle:.2f}")
+
         return velocity, steer_angle  # Placeholder for safety filter logic
+
+
+class BicycleSimResult(SimulateResult):
+    def __init__(self, simulation_time: float, time_step: float):
+        super().__init__(simulation_time, time_step)
+        self.barrier_data: list[tuple[float, float, float, float]] = []
+
+    def append_barrier_data(self, data: tuple[float, float, float, float]):
+        self.barrier_data.append(data)
+
+    def get_barrier_data(self) -> list[tuple[float, float, float, float]]:
+        return self.barrier_data
+
+
+class BicycleSimulator(Simulator):
+    def __init__(
+        self,
+        model: BicycleModel,
+        controller: BicycleController,
+        simulation_time: float = 10.0,
+        time_step: float = 0.01,
+    ):
+        super().__init__(model, controller, simulation_time, time_step)
+        self.__prev_steer_angle = 0.0
+
+    def simulate(self, initial_state: BicycleState) -> BicycleSimResult:
+        state = initial_state
+        t = 0.0
+        control_time = 0.0
+        result = BicycleSimResult(self.simulation_time, self.time_step)
+        sim_time_prev_steer_angle = 0.0
+        print(f"Starting simulation")
+        for _ in range(self.time_steps):
+            # Update control signal at specified intervals(self.control_time_step)
+            if t >= control_time:
+                input_signal = self.controller.control(state)
+                control_time += self.control_time_step
+            state = self.__RK4_step(state, input_signal)
+            t += self.time_step
+
+            # save results
+            result.append_state(state)
+            barrier_data = self.get_barrier_data(state, input_signal)
+            result.append_barrier_data(barrier_data)
+        print(f"Simulation completed.")
+        return result
+
+    def __RK4_step(
+        self, state: BicycleState, input_signal: BicycleInput
+    ) -> BicycleState:
+        k1 = self.model.differential(state, input_signal)
+        k2 = self.model.differential(state + k1 * (self.time_step / 2), input_signal)
+        k3 = self.model.differential(state + k2 * (self.time_step / 2), input_signal)
+        k4 = self.model.differential(state + k3 * self.time_step, input_signal)
+        return state + (k1 + 2 * k2 + 2 * k3 + k4) * (self.time_step / 6)
+
+    def get_barrier_data(
+        self, state: BicycleState, input_signal: BicycleInput
+    ) -> list[tuple[float, float, float, float]]:
+        omega = (
+            input_signal.steer - self.__prev_steer_angle
+        ) / self.controller.controller_time_step
+        h_inputs = (
+            state.x,
+            state.y,
+            state.velocity,
+            state.theta,
+            input_signal.steer,
+            input_signal.acceleration,
+            omega,
+        )
+        h = self.controller.h(*h_inputs)  # Update safety filter state
+        h1 = self.controller.h1(*h_inputs)
+        h2 = self.controller.h2(*h_inputs)
+        h3 = self.controller.h3(*h_inputs)
+
+        return (h, h1, h2, h3)
 
 
 class BicycleVisualizer(Visualizer):
@@ -400,13 +488,16 @@ class BicycleVisualizer(Visualizer):
         self.model = model
         self.filter = filter
 
-    def visualize(self, data: SimulateResult):
+    def visualize(
+        self,
+        data: SimulateResult,
+    ):
         """
         Visualize the simulation results.
 
         @param data: Simulation results (SimulateResult object).
         """
-
+        barrier_data = data.barrier_data
         states, simulation_time, time_step = data.get_results()
 
         print(f"Visualizing simulation results with {len(states)} states.")
@@ -497,20 +588,40 @@ class BicycleVisualizer(Visualizer):
         ani.save("bicycle_simulation.mp4", writer="ffmpeg", fps=self.fps)
 
         # Plot state variables over time
+        figsize = (20, 8)
+        rows = 4
+        cols = 2
         time_points = np.arange(0, simulation_time, time_step)
-        fig2, axs = plt.subplots(4, 1, figsize=(10, 8), sharex=True)
-        axs[0].plot(time_points, [s.x for s in states], label="x")
-        axs[0].set_ylabel("x position")
-        axs[0].legend()
-        axs[1].plot(time_points, [s.y for s in states], label="y")
-        axs[1].set_ylabel("y position")
-        axs[1].legend()
-        axs[2].plot(time_points, [s.theta for s in states], label="theta")
-        axs[2].set_ylabel("theta (rad)")
-        axs[2].legend()
-        axs[3].plot(time_points, [s.velocity for s in states], label="velocity")
-        axs[3].set_ylabel("velocity")
-        axs[3].set_xlabel("time (s)")
-        axs[3].legend()
+        fig2, axs = plt.subplots(rows, cols, figsize=figsize, sharex=True)
+        axs[0, 0].plot(time_points, [s.x for s in states], label="x")
+        axs[0, 0].set_ylabel("x position")
+        axs[0, 0].legend()
+        axs[1, 0].plot(time_points, [s.y for s in states], label="y")
+        axs[1, 0].set_ylabel("y position")
+        axs[1, 0].legend()
+        axs[2, 0].plot(time_points, [s.theta for s in states], label="theta")
+        axs[2, 0].set_ylabel("theta (rad)")
+        axs[2, 0].legend()
+        axs[3, 0].plot(time_points, [s.velocity for s in states], label="velocity")
+        axs[3, 0].set_ylabel("velocity")
+        axs[3, 0].set_xlabel("time (s)")
+        axs[3, 0].legend()
+        dictionary = {
+            0: "h",
+            1: "h1",
+            2: "h2",
+            3: "h3",
+        }
+        for i in range(4):
+            axs[i, 1].plot(
+                time_points,
+                [barrier_data[j][i] for j in range(len(barrier_data))],
+                label=dictionary[i],
+            )
+            axs[i, 1].set_ylabel(dictionary[i])
+            axs[i, 1].set_xlabel("time (s)")
+            axs[i, 1].legend()
+            axs[i, 1].grid()
+
         plt.tight_layout()
         plt.show()

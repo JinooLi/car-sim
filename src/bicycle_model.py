@@ -162,8 +162,11 @@ class BicycleController(Controller):
             h=2.0,
         )
 
+        # Apply safety filter when the option is enabled
         if self.filter:
-            target_velocity, steer = self.__safety_filter(state, target_velocity, steer)
+            target_velocity, steer = self.__safety_filter(
+                state, target_velocity, steer, state.velocity, self.__prev_steer_angle
+            )
 
         target_velocity = np.clip(target_velocity, 0.0, 5.0)  # Limit max speed
         if self.steer_limit:  # Limit steering angle
@@ -180,6 +183,9 @@ class BicycleController(Controller):
         if np.hypot(pos_error, angle_error) < 0.15:  # Stop if close to target
             steer = 0.0
             target_velocity = 0.0
+
+        # save previous angle for safety filter
+        self.__prev_steer_angle = steer
 
         acceleration = 10 * (target_velocity - state.velocity)  # simple P controller
         return BicycleInput(steer=steer, acceleration=acceleration)
@@ -307,7 +313,6 @@ class BicycleController(Controller):
             input_symbols, constant_term, modules="numpy"
         )
 
-        self.__prev_velocity = 0.0
         self.__prev_steer_angle = 0.0
         print("Safety filter initialized.")
 
@@ -316,6 +321,8 @@ class BicycleController(Controller):
         state: BicycleState,
         input_velocity: float,
         input_steer_angle: float,
+        prev_velocity: float,
+        prev_steer_angle: float,
     ) -> tuple[float, float]:
         """Safety filter to ensure the bicycle does not exceed certain limits.
 
@@ -323,15 +330,15 @@ class BicycleController(Controller):
             state (BicycleState): The current state of the bicycle.
             input_velocity (float): The current velocity of the bicycle.
             input_steer_angle (float): The current steering angle of the bicycle.
+            prev_velocity (float): The previous velocity of the bicycle.
+            prev_steer_angle (float): The previous steering angle of the bicycle.
 
         Returns:
             tuple[float, float]: A tuple containing the filtered velocity and steering angle.
         """
         # Assume the acceleration and steer angular velocity by the difference from previous input
-        a_nom = (input_velocity - state.velocity) / self.controller_time_step
-        omega_nom = (
-            input_steer_angle - self.__prev_steer_angle
-        ) / self.controller_time_step
+        a_nom = (input_velocity - prev_velocity) / self.controller_time_step
+        omega_nom = (input_steer_angle - prev_steer_angle) / self.controller_time_step
 
         u_nom = np.array(
             [
@@ -373,14 +380,11 @@ class BicycleController(Controller):
             steer_angle = input_steer_angle
         else:
             filtered_input = np.array(sol["x"]).flatten()
-            velocity = (
-                self.__prev_velocity + self.controller_time_step * filtered_input[0]
-            )
+            velocity = prev_velocity + self.controller_time_step * filtered_input[0]
             steer_angle = (
-                self.__prev_steer_angle + self.controller_time_step * filtered_input[1]
+                prev_steer_angle + self.controller_time_step * filtered_input[1]
             )
 
-        self.__prev_velocity = state.velocity
         self.__prev_steer_angle = steer_angle
         print(
             f"state:{state.x:.2f}, {state.y:.2f}, {state.theta:.2f}, {state.velocity:.2f}"

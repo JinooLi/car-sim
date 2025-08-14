@@ -441,6 +441,9 @@ class BicycleVisualizer(Visualizer):
         ax.grid()
         ax.legend()
 
+        if self.filter:
+            circle = plt.Circle((4, 4), 3, color="red")
+            ax.add_patch(circle)
         car = plt.Rectangle(
             (0, -car_width / 2),
             car_length,
@@ -450,9 +453,6 @@ class BicycleVisualizer(Visualizer):
             alpha=0.5,
         )
         ax.add_patch(car)
-        if self.filter:
-            circle = plt.Circle((4, 4), 3, color="red")
-            ax.add_patch(circle)
 
         x_fps_history = []
         y_fps_history = []

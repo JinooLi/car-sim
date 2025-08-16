@@ -105,13 +105,20 @@ class BicycleModel(Model):
         return dstate
 
 
+class Obstacle:
+    def __init__(self, position: tuple[float, float], radius: float):
+        self.position = position
+        self.radius = radius
+
+
 class BicycleController(Controller):
     def __init__(
         self,
         model: BicycleModel,
         target_position: tuple[float, float],
-        target_angle: float = 0.0,
-        controller_time_step=0.1,
+        target_angle: float,
+        obstacle: Obstacle,
+        controller_time_step: float = 0.1,
         filter: bool = True,
         steer_limit: bool = True,
         k1: float = 10.0,
@@ -123,11 +130,17 @@ class BicycleController(Controller):
         Args:
             model (BicycleModel): The bicycle model.
             target_position (tuple[float, float]): The target position (x, y) for the bicycle.
-            target_angle (float, optional): The target angle for the bicycle. Defaults to 0.0.
+            target_angle (float): The target angle for the bicycle.
+            obstacle (Obstacle, optional): The obstacle to avoid.
             controller_time_step (float, optional): The time step for control updates. Defaults to 0.1.
+            filter (bool, optional): Whether to apply a safety filter. Defaults to True.
+            steer_limit (bool, optional): Whether to limit the steering angle. Defaults to True.
+            k1 (float, optional): First Gain for the barrier function. Defaults to 10.0.
+            k2 (float, optional): Second Gain for the barrier function. Defaults to 10.0.
+            k3 (float, optional): Third Gain for the barrier function. Defaults to 5.0.
         """
         super().__init__(model, controller_time_step)
-        self.__init_safety_filter(k1, k2, k3)
+        self.__init_safety_filter(obstacle, k1, k2, k3)
         self.target_position = target_position
         self.target_angle = target_angle
         self.filter = filter
@@ -253,7 +266,7 @@ class BicycleController(Controller):
 
         return velocity, steer_angle
 
-    def __init_safety_filter(self, k1: float, k2: float, k3: float):
+    def __init_safety_filter(self, obstacle: Obstacle, k1: float, k2: float, k3: float):
         """Initialize the safety filter parameters."""
         print("Initializing safety filter...")
         t = sp.symbols("t")
@@ -277,7 +290,11 @@ class BicycleController(Controller):
         input_symbols = (x, y, v, phi, psi, a, omega)
 
         # Define the safety condition
-        h = (x - 4) ** 2 + (y - 4) ** 2 - 3**2
+        h = (
+            (x - obstacle.position[0]) ** 2
+            + (y - obstacle.position[1]) ** 2
+            - obstacle.radius**2
+        )
         self.h = sp.lambdify(input_symbols, h, modules="numpy")
 
         # Define differential equations
@@ -432,7 +449,6 @@ class BicycleSimulator(Simulator):
         t = 0.0
         control_time = 0.0
         result = BicycleSimResult(self.simulation_time, self.time_step)
-        sim_time_prev_steer_angle = 0.0
         print(f"Starting simulation")
         for _ in range(self.time_steps):
             # Update control signal at specified intervals(self.control_time_step)
@@ -482,11 +498,23 @@ class BicycleSimulator(Simulator):
 
 
 class BicycleVisualizer(Visualizer):
-    def __init__(self, model: BicycleModel, fps: int = 30, filter: bool = True):
-        """ """
+    def __init__(
+        self,
+        model: BicycleModel,
+        obstacle: Obstacle = None,
+        fps: int = 30,
+    ):
+        """
+        Initialize the BicycleVisualizer.
+
+        Args:
+            model (BicycleModel): The bicycle model to visualize.
+            obstacle (Obstacle): The obstacle to avoid. Defaults to None.
+            fps (int, optional): Frames per second for the visualization. Defaults to 30.
+        """
         super().__init__(fps)
         self.model = model
-        self.filter = filter
+        self.obstacle = obstacle
 
     def visualize(
         self,
@@ -532,8 +560,12 @@ class BicycleVisualizer(Visualizer):
         ax.grid()
         ax.legend()
 
-        if self.filter:
-            circle = plt.Circle((4, 4), 3, color="red")
+        if self.obstacle is not None:
+            circle = plt.Circle(
+                (self.obstacle.position[0], self.obstacle.position[1]),
+                self.obstacle.radius,
+                color="red",
+            )
             ax.add_patch(circle)
         car = plt.Rectangle(
             (0, -car_width / 2),

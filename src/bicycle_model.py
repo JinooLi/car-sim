@@ -87,14 +87,14 @@ class BicycleModel(Model):
         self.wheelbase = wheelbase
 
     def differential(self, state: BicycleState, input: BicycleInput) -> State:
-        """
-        Calculate the differential state of the bicycle model.
+        """Calculate the differential state of the bicycle model.
 
-        @param state: Current state of the bicycle (State object).
+        Args:
+            state (BicycleState): Current state of the bicycle.
+            input (BicycleInput): Input to the bicycle model.
 
-        @param input: Input to the bicycle model (Input object).
-
-        @output: Returns the differential state (State object).
+        Returns:
+            State: Differential state of the bicycle.
         """
         # Bicycle model differential equations
         dstate = BicycleState()
@@ -107,6 +107,12 @@ class BicycleModel(Model):
 
 class Obstacle:
     def __init__(self, position: tuple[float, float], radius: float):
+        """Initialize an obstacle.
+
+        Args:
+            position (tuple[float, float]): The (x, y) position of the obstacle.
+            radius (float): The radius of the obstacle.
+        """
         self.position = position
         self.radius = radius
 
@@ -267,7 +273,14 @@ class BicycleController(Controller):
         return velocity, steer_angle
 
     def __init_safety_filter(self, obstacle: Obstacle, k1: float, k2: float, k3: float):
-        """Initialize the safety filter parameters."""
+        """Initialize the safety filter parameters.
+
+        Args:
+            obstacle (Obstacle): The obstacle to avoid.
+            k1 (float): The parameter for the first barrier function.
+            k2 (float): The parameter for the second barrier function.
+            k3 (float): The parameter for the third barrier function.
+        """
         print("Initializing safety filter...")
         t = sp.symbols("t")
         a = sp.symbols("a", real=True)
@@ -423,6 +436,12 @@ class BicycleController(Controller):
 
 class BicycleSimResult(SimulateResult):
     def __init__(self, simulation_time: float, time_step: float):
+        """Initialize the simulation result.
+
+        Args:
+            simulation_time (float): Total time of the simulation.
+            time_step (float): Time step used in the simulation.
+        """
         super().__init__(simulation_time, time_step)
         self.barrier_data: list[tuple[float, float, float, float]] = []
 
@@ -438,14 +457,24 @@ class BicycleSimulator(Simulator):
         self,
         model: BicycleModel,
         controller: BicycleController,
+        initial_state: BicycleState,
         simulation_time: float = 10.0,
         time_step: float = 0.01,
     ):
-        super().__init__(model, controller, simulation_time, time_step)
+        """Initialize the bicycle simulator.
+
+        Args:
+            model (BicycleModel): The bicycle model to simulate.
+            controller (BicycleController): The controller for the simulation.
+            initial_state (BicycleState): The initial state of the bicycle.
+            simulation_time (float, optional): Total time of the simulation. Defaults to 10.0.
+            time_step (float, optional): Time step used in the simulation. Defaults to 0.01.
+        """
+        super().__init__(model, controller, initial_state, simulation_time, time_step)
         self.__prev_steer_angle = 0.0
 
-    def simulate(self, initial_state: BicycleState) -> BicycleSimResult:
-        state = initial_state
+    def simulate(self) -> BicycleSimResult:
+        state = self.initial_state
         t = 0.0
         control_time = 0.0
         result = BicycleSimResult(self.simulation_time, self.time_step)

@@ -88,18 +88,20 @@ class Simulator(ABC):
         self,
         model: Model,  # Model to simulate
         controller: Controller,  # Controller for managing inputs to the model
+        initial_state: State,  # Initial state of the model
         simulation_time: float = 10.0,  # Total simulation time in seconds
         time_step: float = 0.01,  # Time step for simulation updates
     ):
         self.model = model
         self.controller = controller
+        self.initial_state = initial_state
         self.simulation_time = simulation_time
         self.time_step = time_step
         self.time_steps = int(simulation_time / time_step)
         self.control_time_step = controller.controller_time_step
 
-    def simulate(self, initial_state: State) -> SimulateResult:
-        state = initial_state
+    def simulate(self) -> SimulateResult:
+        state = self.initial_state
         t = 0.0
         control_time = 0.0
         result = SimulateResult(self.simulation_time, self.time_step)

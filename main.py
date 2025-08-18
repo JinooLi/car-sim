@@ -15,21 +15,21 @@ model: Model = BicycleModel()
 
 
 def simulate_once():
-    init_state = BicycleState(x=0.0, y=0.0, theta=0.0, velocity=0.0)
+    init_state = BicycleState(x=0, y=0, theta=np.pi/4, velocity=0.0)
 
-    obstacle = Obstacle(position=(4, 4), radius=3.0)
+    obstacle = Obstacle(position=(4, 4), radius=3)
 
     controller: Controller = BicycleController(
         model,
         target_position=(10, 10),
-        target_angle=np.pi * (0 / 12),
-        controller_time_step=0.01,
+        target_angle=np.pi * (3 / 12),
+        controller_time_step=0.1,
         obstacle=obstacle,
         filter=True,
         steer_limit=True,
         k1=10.0,  # alpha1(a) := k1*a
         k2=10.0,  # alpha2(a) := k2*a
-        k3=5,  # alpha3(a) := k3*a
+        k3=1,  # alpha3(a) := k3*a
     )
     vis: Visualizer = BicycleVisualizer(model, fps=30, obstacle=obstacle)
 

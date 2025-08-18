@@ -393,7 +393,7 @@ class BicycleController(Controller):
 
         # argmin_u: (u-u_nom)@P@(u-u_nom)
         # st. Gu <= h
-        P = np.identity(2)
+        P = np.array([[1, 0.2], [0.2, 1]], np.float64)  # Quadratic cost matrix
         q = -(2 * u_nom.T @ P).T
         coeff_inputs = (
             state.theta,

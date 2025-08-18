@@ -298,8 +298,6 @@ class BicycleController(Controller):
         dotv = a
         dotpsi = omega
 
-        h = sp.Function("h", real=True)(x, y)
-
         input_symbols = (x, y, v, phi, psi, a, omega)
 
         # Define the safety condition
@@ -393,7 +391,7 @@ class BicycleController(Controller):
 
         # argmin_u: (u-u_nom)@P@(u-u_nom)
         # st. Gu <= h
-        tendency = -0.2  # -1 <= tendency <= 1 
+        tendency = -0.2  # -1 <= tendency <= 1
         P = np.identity(2) + np.array(
             [[0, tendency], [tendency, 0]], np.float64
         )  # Quadratic cost matrix

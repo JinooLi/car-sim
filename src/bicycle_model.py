@@ -393,7 +393,10 @@ class BicycleController(Controller):
 
         # argmin_u: (u-u_nom)@P@(u-u_nom)
         # st. Gu <= h
-        P = np.array([[1, 0.2], [0.2, 1]], np.float64)  # Quadratic cost matrix
+        tendency = -0.2  # -1 <= tendency <= 1 
+        P = np.identity(2) + np.array(
+            [[0, tendency], [tendency, 0]], np.float64
+        )  # Quadratic cost matrix
         q = -(2 * u_nom.T @ P).T
         coeff_inputs = (
             state.theta,
@@ -585,7 +588,7 @@ class BicycleVisualizer(Visualizer):
         fig.set_size_inches(x_size, y_size)
 
         # Plot the trajectory as a line
-        ax.plot(state_x, state_y, color="red", linewidth=2, label="Trajectory")
+        ax.plot(state_x, state_y, color="blue", linewidth=2, label="Trajectory")
         ax.grid()
         ax.legend()
 

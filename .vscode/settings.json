@@ -1,4 +1,5 @@
 {
+  "files.autoSave": "afterDelay",
   "cSpell.words": [
     "arctan",
     "argmin",
@@ -20,5 +21,9 @@
     "xlim",
     "ylabel",
     "ylim"
-  ]
+  ],
+  "[python]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "ms-python.black-formatter"
+  }
 }

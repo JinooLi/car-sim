@@ -380,6 +380,10 @@ class BicycleController(Controller):
         Returns:
             tuple[float, float]: A tuple containing the filtered velocity and steering angle.
         """
+        print(
+            f"Safety filter: input_velocity={input_velocity:.2f}, input_steer_angle={input_steer_angle:.2f}"
+        )
+
         # Assume the acceleration and steer angular velocity by the difference from previous input
         a_nom = (input_velocity - prev_velocity) / self.controller_time_step
         omega_nom = (input_steer_angle - prev_steer_angle) / self.controller_time_step

@@ -15,6 +15,11 @@ from .interface import (
 )
 
 
+def angle_limiter(angle):
+    """Limit the angle to the range [-pi, pi]."""
+    return np.arctan2(np.sin(angle), np.cos(angle))
+
+
 class BicycleState(State):
     def __init__(self, x=0.0, y=0.0, theta=0.0, velocity=0.0):
         super().__init__()
@@ -180,7 +185,7 @@ class BicycleController(Controller):
         state_transformed = BicycleState(
             x=position_transformed[0],
             y=position_transformed[1],
-            theta=state.theta - self.target_angle,
+            theta=angle_limiter(state.theta - self.target_angle),
             velocity=state.velocity,
         )
 
@@ -207,10 +212,7 @@ class BicycleController(Controller):
             self.target_position[0] - state.x,
             self.target_position[1] - state.y,
         )
-        angle_error = np.atan2(
-            np.sin(self.target_angle - state.theta),
-            np.cos(self.target_angle - state.theta),
-        )
+        angle_error = angle_limiter(self.target_angle - state.theta)
         if np.hypot(pos_error, angle_error) < 0.15:  # Stop if close to target
             steer = 0.0
             target_velocity = 0.0
@@ -426,7 +428,10 @@ class BicycleController(Controller):
                 prev_steer_angle + self.controller_time_step * filtered_input[1]
             )
 
-        self.__prev_steer_angle = steer_angle
+        steer_angle = np.clip(
+            steer_angle, -np.pi / 2, np.pi / 2
+        )  # Limit steering angle
+
         print(
             f"state:{state.x:.2f}, {state.y:.2f}, {state.theta:.2f}, {state.velocity:.2f}"
         )
@@ -502,7 +507,9 @@ class BicycleSimulator(Simulator):
         k2 = self.model.differential(state + k1 * (self.time_step / 2), input_signal)
         k3 = self.model.differential(state + k2 * (self.time_step / 2), input_signal)
         k4 = self.model.differential(state + k3 * self.time_step, input_signal)
-        return state + (k1 + 2 * k2 + 2 * k3 + k4) * (self.time_step / 6)
+        output = state + (k1 + 2 * k2 + 2 * k3 + k4) * (self.time_step / 6)
+        output.theta = angle_limiter(output.theta)  # Limit angle
+        return output
 
     def get_barrier_data(
         self, state: BicycleState, input_signal: BicycleInput

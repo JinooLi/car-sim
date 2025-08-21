@@ -21,19 +21,17 @@ def angle_limiter(angle):
 
 
 class BicycleState(State):
-    def __init__(self, x=0.0, y=0.0, theta=0.0, velocity=0.0):
+    def __init__(self, x=0.0, y=0.0, theta=0.0):
         super().__init__()
         self.x = x
         self.y = y
         self.theta = theta
-        self.velocity = velocity
 
     def __add__(self, other):
         return BicycleState(
             self.x + other.x,
             self.y + other.y,
             self.theta + other.theta,
-            self.velocity + other.velocity,
         )
 
     __radd__ = __add__
@@ -44,7 +42,6 @@ class BicycleState(State):
                 self.x * other,
                 self.y * other,
                 self.theta * other,
-                self.velocity * other,
             )
         elif isinstance(other, BicycleState):
             # Element-wise multiplication for two states
@@ -52,7 +49,6 @@ class BicycleState(State):
                 self.x * other.x,
                 self.y * other.y,
                 self.theta * other.theta,
-                self.velocity * other.velocity,
             )
         else:
             raise TypeError("Unsupported type for multiplication with BicycleState")
@@ -65,7 +61,6 @@ class BicycleState(State):
                 self.x / other,
                 self.y / other,
                 self.theta / other,
-                self.velocity / other,
             )
         elif isinstance(other, BicycleState):
             # Element-wise division for two states
@@ -73,17 +68,16 @@ class BicycleState(State):
                 self.x / other.x,
                 self.y / other.y,
                 self.theta / other.theta,
-                self.velocity / other.velocity,
             )
         else:
             raise TypeError("Unsupported type for division with BicycleState")
 
 
 class BicycleInput(Input):
-    def __init__(self, steer=0.0, acceleration=0.0):
+    def __init__(self, steer=0.0, velocity=0.0):
         super().__init__()
         self.steer = steer
-        self.acceleration = acceleration
+        self.velocity = velocity
 
 
 class BicycleModel(Model):
@@ -103,10 +97,9 @@ class BicycleModel(Model):
         """
         # Bicycle model differential equations
         dstate = BicycleState()
-        dstate.x = state.velocity * np.cos(state.theta)
-        dstate.y = state.velocity * np.sin(state.theta)
-        dstate.theta = state.velocity * np.tan(input.steer) / self.wheelbase
-        dstate.velocity = input.acceleration
+        dstate.x = input.velocity * np.cos(state.theta)
+        dstate.y = input.velocity * np.sin(state.theta)
+        dstate.theta = input.velocity * np.tan(input.steer) / self.wheelbase
         return dstate
 
 
@@ -129,6 +122,7 @@ class BicycleController(Controller):
         target_position: tuple[float, float],
         target_angle: float,
         obstacle: Obstacle,
+        initial_input: BicycleInput = BicycleInput(0.0, 0.0),
         controller_time_step: float = 0.1,
         filter: bool = True,
         steer_limit: bool = True,
@@ -157,6 +151,7 @@ class BicycleController(Controller):
         self.filter = filter
         self.steer_limit = steer_limit
         self.barrier_data = []
+        self.__prev_input = initial_input
 
     def control(self, state: BicycleState) -> BicycleInput:
         """Generate control input based on the current state.
@@ -186,10 +181,9 @@ class BicycleController(Controller):
             x=position_transformed[0],
             y=position_transformed[1],
             theta=angle_limiter(state.theta - self.target_angle),
-            velocity=state.velocity,
         )
 
-        target_velocity, steer = self.__ref_controller(
+        velocity, steer = self.__ref_controller(
             state_transformed,
             max_speed=5.0,
             target_position=target_transformed,
@@ -200,28 +194,27 @@ class BicycleController(Controller):
 
         # Apply safety filter when the option is enabled
         if self.filter:
-            target_velocity, steer = self.__safety_filter(
-                state, target_velocity, steer, state.velocity, self.__prev_steer_angle
+            velocity, steer = self.__safety_filter(
+                state,
+                velocity,
+                steer,
+                self.__prev_input.velocity,
+                self.__prev_input.steer,
             )
 
-        target_velocity = np.clip(target_velocity, 0.0, 5.0)  # Limit max speed
+        velocity = np.clip(velocity, -5.0, 5.0)  # Limit max speed
         if self.steer_limit:  # Limit steering angle
             steer = np.clip(steer, -np.pi / 6, np.pi / 6)
 
-        pos_error = np.hypot(
-            self.target_position[0] - state.x,
-            self.target_position[1] - state.y,
-        )
-        angle_error = angle_limiter(self.target_angle - state.theta)
-        if np.hypot(pos_error, angle_error) < 0.15:  # Stop if close to target
-            steer = 0.0
-            target_velocity = 0.0
+        # low-pass filter
+        alpha = 0.5  # filter coefficient
+        velocity = alpha * velocity + (1 - alpha) * self.__prev_input.velocity
+        steer = alpha * steer + (1 - alpha) * self.__prev_input.steer
 
-        # save previous angle for safety filter
-        self.__prev_steer_angle = steer
+        # save previous input for safety filter
+        self.__prev_input = BicycleInput(steer=steer, velocity=velocity)
 
-        acceleration = 10 * (target_velocity - state.velocity)  # simple P controller
-        return BicycleInput(steer=steer, acceleration=acceleration)
+        return BicycleInput(steer=steer, velocity=velocity)
 
     def __ref_controller(
         self,
@@ -300,7 +293,7 @@ class BicycleController(Controller):
         dotv = a
         dotpsi = omega
 
-        input_symbols = (x, y, v, phi, psi, a, omega)
+        input_symbols = (x, y, phi, v, psi, a, omega)
 
         # Define the safety condition
         h = (
@@ -333,15 +326,15 @@ class BicycleController(Controller):
         substitutions = {
             x: sp.symbols("x", real=True),
             y: sp.symbols("y", real=True),
-            v: sp.symbols("v", real=True),
             phi: sp.symbols("phi", real=True),
+            v: sp.symbols("v", real=True),
             psi: sp.symbols("psi", real=True),
         }
 
         x = sp.symbols("x", real=True)
         y = sp.symbols("y", real=True)
-        v = sp.symbols("v", real=True)
         phi = sp.symbols("phi", real=True)
+        v = sp.symbols("v", real=True)
         psi = sp.symbols("psi", real=True)
 
         h_3 = h_3.subs(substitutions)
@@ -350,14 +343,12 @@ class BicycleController(Controller):
         coeff_a = (h_3 - h_3.subs({a: 0})).simplify().subs({a: 1})
         coeff_omega = (h_3 - h_3.subs({omega: 0})).simplify().subs({omega: 1})
 
-        input_symbols = (phi, psi, x, y, v)
+        input_symbols = (x, y, phi, v, psi)
         self.__coeff_a = sp.lambdify(input_symbols, coeff_a, modules="numpy")
         self.__coeff_omega = sp.lambdify(input_symbols, coeff_omega, modules="numpy")
         self.__constant_term = sp.lambdify(
             input_symbols, constant_term, modules="numpy"
         )
-
-        self.__prev_steer_angle = 0.0
         print("Safety filter initialized.")
 
     def __safety_filter(
@@ -397,17 +388,12 @@ class BicycleController(Controller):
 
         # argmin_u: (u-u_nom)@P@(u-u_nom)
         # st. Gu <= h
-        tendency = -0.2  # -1 <= tendency <= 1
-        P = np.identity(2) + np.array(
-            [[0, tendency], [tendency, 0]], np.float64
-        )  # Quadratic cost matrix
-        q = -(2 * u_nom.T @ P).T
         coeff_inputs = (
-            state.theta,
-            input_steer_angle,
             state.x,
             state.y,
-            state.velocity,
+            state.theta,
+            input_velocity,
+            input_steer_angle,
         )
         G = np.array(
             [
@@ -419,6 +405,19 @@ class BicycleController(Controller):
         )
         h = np.array([[self.__constant_term(*coeff_inputs)]])
 
+        norm_G = G / np.linalg.norm(G)
+        max_tendency = 0.5
+        if norm_G @ np.array([[0], [1]]) >= 0:
+            tendency = -max_tendency * float(norm_G @ np.array([[1], [0]]))
+        else:
+            tendency = max_tendency * float(norm_G @ np.array([[1], [0]]))
+        print(f"Safety filter tendency: {tendency:.2f}")
+
+        P = np.identity(2) + np.array(
+            [[0, tendency], [tendency, 0]], np.float64
+        )  # Quadratic cost matrix
+        q = -(2 * u_nom.T @ P).T
+
         solvers.options["show_progress"] = False
         sol = solvers.qp(P=matrix(P), q=matrix(q), G=matrix(G), h=matrix(h))
         if sol["status"] != "optimal":
@@ -427,18 +426,15 @@ class BicycleController(Controller):
             steer_angle = input_steer_angle
         else:
             filtered_input = np.array(sol["x"]).flatten()
-            velocity = prev_velocity + self.controller_time_step * filtered_input[0]
-            steer_angle = (
-                prev_steer_angle + self.controller_time_step * filtered_input[1]
-            )
+            a, omega = filtered_input[0], filtered_input[1]
+            velocity = prev_velocity + self.controller_time_step * a
+            steer_angle = prev_steer_angle + self.controller_time_step * omega
 
         steer_angle = np.clip(
-            steer_angle, -np.pi / 2, np.pi / 2
+            steer_angle, -np.pi / 2 + 0.05, np.pi / 2 - 0.05
         )  # Limit steering angle
 
-        print(
-            f"state:{state.x:.2f}, {state.y:.2f}, {state.theta:.2f}, {state.velocity:.2f}"
-        )
+        print(f"state:{state.x:.2f}, {state.y:.2f}, {state.theta:.2f}")
         print(f"Safety filter: velocity={velocity:.2f}, steer_angle={steer_angle:.2f}")
 
         return velocity, steer_angle  # Placeholder for safety filter logic
@@ -454,12 +450,19 @@ class BicycleSimResult(SimulateResult):
         """
         super().__init__(simulation_time, time_step)
         self.barrier_data: list[tuple[float, float, float, float]] = []
+        self.input_data: list[BicycleInput] = []
 
     def append_barrier_data(self, data: tuple[float, float, float, float]):
         self.barrier_data.append(data)
 
     def get_barrier_data(self) -> list[tuple[float, float, float, float]]:
         return self.barrier_data
+
+    def append_input_data(self, data: BicycleInput):
+        self.input_data.append(data)
+
+    def get_input_data(self) -> list[BicycleInput]:
+        return self.input_data
 
 
 class BicycleSimulator(Simulator):
@@ -468,6 +471,7 @@ class BicycleSimulator(Simulator):
         model: BicycleModel,
         controller: BicycleController,
         initial_state: BicycleState,
+        initial_input: BicycleInput = BicycleInput(0.0, 0.0),
         simulation_time: float = 10.0,
         time_step: float = 0.01,
     ):
@@ -481,17 +485,19 @@ class BicycleSimulator(Simulator):
             time_step (float, optional): Time step used in the simulation. Defaults to 0.01.
         """
         super().__init__(model, controller, initial_state, simulation_time, time_step)
-        self.__prev_steer_angle = 0.0
+        self.initial_input = initial_input
 
     def simulate(self) -> BicycleSimResult:
         state = self.initial_state
         t = 0.0
         control_time = 0.0
         result = BicycleSimResult(self.simulation_time, self.time_step)
+        input_signal = prev_input_signal = self.initial_input
         print(f"Starting simulation")
         for _ in range(self.time_steps):
             # Update control signal at specified intervals(self.control_time_step)
             if t >= control_time:
+                prev_input_signal = input_signal
                 input_signal = self.controller.control(state)
                 control_time += self.control_time_step
             state = self.__RK4_step(state, input_signal)
@@ -499,8 +505,9 @@ class BicycleSimulator(Simulator):
 
             # save results
             result.append_state(state)
-            barrier_data = self.get_barrier_data(state, input_signal)
+            barrier_data = self.get_barrier_data(state, input_signal, prev_input_signal)
             result.append_barrier_data(barrier_data)
+            result.append_input_data(input_signal)
         print(f"Simulation completed.")
         return result
 
@@ -516,18 +523,24 @@ class BicycleSimulator(Simulator):
         return output
 
     def get_barrier_data(
-        self, state: BicycleState, input_signal: BicycleInput
+        self,
+        state: BicycleState,
+        input_signal: BicycleInput,
+        prev_input_signal: BicycleInput,
     ) -> list[tuple[float, float, float, float]]:
         omega = (
-            input_signal.steer - self.__prev_steer_angle
+            input_signal.steer - prev_input_signal.steer
+        ) / self.controller.controller_time_step
+        acceleration = (
+            input_signal.velocity - prev_input_signal.velocity
         ) / self.controller.controller_time_step
         h_inputs = (
             state.x,
             state.y,
-            state.velocity,
             state.theta,
+            input_signal.velocity,
             input_signal.steer,
-            input_signal.acceleration,
+            acceleration,
             omega,
         )
         h = self.controller.h(*h_inputs)  # Update safety filter state
@@ -559,14 +572,15 @@ class BicycleVisualizer(Visualizer):
 
     def visualize(
         self,
-        data: SimulateResult,
+        data: BicycleSimResult,
     ):
         """
         Visualize the simulation results.
 
-        @param data: Simulation results (SimulateResult object).
+        @param data: Simulation results (BicycleSimResult object).
         """
-        barrier_data = data.barrier_data
+        barrier_data = data.get_barrier_data()
+        input_data = data.get_input_data()
         states, simulation_time, time_step = data.get_results()
 
         print(f"Visualizing simulation results with {len(states)} states.")
@@ -661,8 +675,8 @@ class BicycleVisualizer(Visualizer):
         ani.save("bicycle_simulation.mp4", writer="ffmpeg", fps=self.fps)
 
         # Plot state variables over time
-        figsize = (20, 8)
-        rows = 4
+        figsize = (20, 10)
+        rows = 5
         cols = 2
         time_points = np.arange(0, simulation_time, time_step)
         fig2, axs = plt.subplots(rows, cols, figsize=figsize, sharex=True)
@@ -675,10 +689,12 @@ class BicycleVisualizer(Visualizer):
         axs[2, 0].plot(time_points, [s.theta for s in states], label="theta")
         axs[2, 0].set_ylabel("theta (rad)")
         axs[2, 0].legend()
-        axs[3, 0].plot(time_points, [s.velocity for s in states], label="velocity")
-        axs[3, 0].set_ylabel("velocity")
-        axs[3, 0].set_xlabel("time (s)")
+        axs[3, 0].plot(time_points, [s.velocity for s in input_data], label="v")
+        axs[3, 0].set_ylabel("velocity (m/s)")
         axs[3, 0].legend()
+        axs[4, 0].plot(time_points, [s.steer for s in input_data], label="steer")
+        axs[4, 0].set_ylabel("steer (rad)")
+        axs[4, 0].legend()
         dictionary = {
             0: "h",
             1: "h1",

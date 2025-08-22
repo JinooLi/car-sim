@@ -374,7 +374,7 @@ class BicycleController(Controller):
             tuple[float, float]: A tuple containing the filtered velocity and steering angle.
         """
         print(
-            f"Safety filter: input_velocity={input_velocity:.2f}, input_steer_angle={input_steer_angle:.2f}"
+            f"Safety filter: input_velocity={input_velocity:.2f}, input_steer_angle={input_steer_angle/np.pi:.2f}*pi"
         )
 
         # Assume the acceleration and steer angular velocity by the difference from previous input
@@ -436,7 +436,7 @@ class BicycleController(Controller):
             steer_angle, -np.pi / 2 + 0.05, np.pi / 2 - 0.05
         )  # Limit steering angle
 
-        print(f"state:{state.x:.2f}, {state.y:.2f}, {state.theta:.2f}")
+        print(f"state:{state.x:.2f}, {state.y:.2f}, {state.theta/np.pi:.2f}*pi")
         print(f"Safety filter: velocity={velocity:.2f}, steer_angle={steer_angle:.2f}")
 
         return velocity, steer_angle  # Placeholder for safety filter logic

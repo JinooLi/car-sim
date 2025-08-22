@@ -247,10 +247,7 @@ class BicycleController(Controller):
 
         pos_error = np.sqrt((tp[0] - x) ** 2 + (tp[1] - y) ** 2)
         goal_angle = np.arctan2(tp[1] - y, tp[0] - x)
-        steer_error = goal_angle - theta
-        steer_error = np.arctan2(
-            np.sin(steer_error), np.cos(steer_error)
-        )  # Normalize steer error
+        steer_error = angle_limiter(goal_angle - theta)
 
         velocity = gamma * pos_error
 

@@ -256,8 +256,13 @@ class BicycleController(Controller):
 
         c = (
             np.sin(steer_error)
-            + h * goal_angle * np.sin(steer_error) / steer_error
-            + beta * steer_error
+            + h
+            * goal_angle
+            * (
+                1
+                if steer_error == 0
+                else np.sin(steer_error) / steer_error + beta * steer_error
+            )
         ) / pos_error
 
         steer_angle = np.arctan(c * self.model.wheelbase)

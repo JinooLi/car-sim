@@ -15,9 +15,9 @@ import numpy as np
 
 def simulate_once():
     model = BicycleModel(wheelbase=1.0)
-    init_state = BicycleState(x=0, y=0, theta=np.pi * (3 / 12))
-    init_input = BicycleInput(steer=0, velocity=-5)
-    obstacle = Obstacle(position=(4, 4), radius=3.5)
+    init_state = BicycleState(x=0.0, y=0.0, theta=np.pi * (3 / 12))
+    init_input = BicycleInput(steer=0, velocity=0)
+    obstacle = Obstacle(position=(4, 4), radius=3.0)
 
     controller: Controller = BicycleController(
         model,

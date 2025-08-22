@@ -174,12 +174,12 @@ class BicycleController(Controller):
         position_vector = np.array([state.x, state.y])
         target_position_vector = np.array(self.target_position)
 
-        position_transformed = rotation_matrix @ position_vector
+        x_transformed, y_transformed = tuple(rotation_matrix @ position_vector)
         target_transformed = tuple(rotation_matrix @ target_position_vector)
 
         state_transformed = BicycleState(
-            x=position_transformed[0],
-            y=position_transformed[1],
+            x=x_transformed,
+            y=y_transformed,
             theta=angle_limiter(state.theta - self.target_angle),
         )
 
@@ -191,6 +191,9 @@ class BicycleController(Controller):
             beta=2.9,
             h=2.0,
         )
+
+        if self.steer_limit:  # Limit steering angle
+            steer = np.clip(steer, -np.pi / 6, np.pi / 6)
 
         # Apply safety filter when the option is enabled
         if self.filter:
@@ -207,7 +210,7 @@ class BicycleController(Controller):
             steer = np.clip(steer, -np.pi / 6, np.pi / 6)
 
         # low-pass filter
-        alpha = 0.5  # filter coefficient
+        alpha = 1  # filter coefficient
         velocity = alpha * velocity + (1 - alpha) * self.__prev_input.velocity
         steer = alpha * steer + (1 - alpha) * self.__prev_input.steer
 
@@ -258,11 +261,8 @@ class BicycleController(Controller):
             np.sin(steer_error)
             + h
             * goal_angle
-            * (
-                1
-                if steer_error == 0
-                else np.sin(steer_error) / steer_error + beta * steer_error
-            )
+            * (1 if steer_error == 0 else np.sin(steer_error) / steer_error)
+            + beta * steer_error
         ) / pos_error
 
         steer_angle = np.arctan(c * self.model.wheelbase)
@@ -286,16 +286,16 @@ class BicycleController(Controller):
         y = sp.Function("y", real=True)(t)
         v = sp.Function("v", real=True)(t)  # velocity
         phi = sp.Function("phi", real=True)(t)  # heading angle
-        psi = sp.Function("psi", real=True)(t)  # steering angle
+        delta = sp.Function("delta", real=True)(t)  # steering angle
         l = self.model.wheelbase
 
         dotx = v * sp.cos(phi)
         doty = v * sp.sin(phi)
-        dotphi = v * sp.tan(psi) / l
+        dotphi = v * sp.tan(delta) / l
         dotv = a
-        dotpsi = omega
+        dotdelta = omega
 
-        input_symbols = (x, y, phi, v, psi, a, omega)
+        input_symbols = (x, y, phi, v, delta, a, omega)
 
         # Define the safety condition
         h = (
@@ -311,7 +311,7 @@ class BicycleController(Controller):
             y.diff(t): doty,
             phi.diff(t): dotphi,
             v.diff(t): dotv,
-            psi.diff(t): dotpsi,
+            delta.diff(t): dotdelta,
         }
 
         h_1 = h.diff(t) + k1 * h
@@ -330,22 +330,22 @@ class BicycleController(Controller):
             y: sp.symbols("y", real=True),
             phi: sp.symbols("phi", real=True),
             v: sp.symbols("v", real=True),
-            psi: sp.symbols("psi", real=True),
+            delta: sp.symbols("delta", real=True),
         }
 
         x = sp.symbols("x", real=True)
         y = sp.symbols("y", real=True)
         phi = sp.symbols("phi", real=True)
         v = sp.symbols("v", real=True)
-        psi = sp.symbols("psi", real=True)
+        delta = sp.symbols("delta", real=True)
 
         h_3 = h_3.subs(substitutions)
 
-        constant_term = h_3.subs({a: 0, omega: 0})
+        constant_term = h_3.subs({a: 0, omega: 0}).simplify()
         coeff_a = (h_3 - h_3.subs({a: 0})).simplify().subs({a: 1})
         coeff_omega = (h_3 - h_3.subs({omega: 0})).simplify().subs({omega: 1})
 
-        input_symbols = (x, y, phi, v, psi)
+        input_symbols = (x, y, phi, v, delta)
         self.__coeff_a = sp.lambdify(input_symbols, coeff_a, modules="numpy")
         self.__coeff_omega = sp.lambdify(input_symbols, coeff_omega, modules="numpy")
         self.__constant_term = sp.lambdify(
@@ -390,12 +390,15 @@ class BicycleController(Controller):
 
         # argmin_u: (u-u_nom)@P@(u-u_nom)
         # st. Gu <= h
+
+        # make constraints  
+        alpha = 1
         coeff_inputs = (
             state.x,
             state.y,
             state.theta,
-            input_velocity,
-            input_steer_angle,
+            alpha * input_velocity + (1 - alpha) * prev_velocity,
+            alpha * input_steer_angle + (1 - alpha) * prev_steer_angle,
         )
         G = np.array(
             [
@@ -407,16 +410,25 @@ class BicycleController(Controller):
         )
         h = np.array([[self.__constant_term(*coeff_inputs)]])
 
+        # make cost function
         norm_G = G / np.linalg.norm(G)
-        max_tendency = 0.5
+        max_tendency = 0.01
         if norm_G @ np.array([[0], [1]]) >= 0:
-            tendency = -max_tendency * float(norm_G @ np.array([[1], [0]]))
+            tendency = (
+                -max_tendency
+                * abs(float(norm_G @ np.array([[1], [0]])))
+                * np.sign(prev_velocity)
+            )
         else:
-            tendency = max_tendency * float(norm_G @ np.array([[1], [0]]))
+            tendency = (
+                max_tendency
+                * abs(float(norm_G @ np.array([[1], [0]])))
+                * np.sign(prev_velocity)
+            )
         print(f"Safety filter tendency: {tendency:.2f}")
 
-        P = np.identity(2) + np.array(
-            [[0, tendency], [tendency, 0]], np.float64
+        P = np.array(
+            [[1, tendency], [tendency, 1]], np.float64
         )  # Quadratic cost matrix
         q = -(2 * u_nom.T @ P).T
 
@@ -437,7 +449,9 @@ class BicycleController(Controller):
         )  # Limit steering angle
 
         print(f"state:{state.x:.2f}, {state.y:.2f}, {state.theta/np.pi:.2f}*pi")
-        print(f"Safety filter: velocity={velocity:.2f}, steer_angle={steer_angle:.2f}")
+        print(
+            f"Safety filter: velocity={velocity:.2f}, steer_angle={steer_angle/np.pi:.2f}*pi"
+        )
 
         return velocity, steer_angle  # Placeholder for safety filter logic
 

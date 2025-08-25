@@ -145,9 +145,9 @@ class BicycleController(Controller):
             k3 (float, optional): Third Gain for the barrier function. Defaults to 5.0.
         """
         super().__init__(model, controller_time_step)
-        self.__init_safety_filter(obstacle, k1, k2, k3)
         self.target_position = target_position
         self.target_angle = target_angle
+        self.__init_safety_filter(obstacle, k1, k2, k3)
         self.filter = filter
         self.steer_limit = steer_limit
         self.barrier_data = []
@@ -210,7 +210,7 @@ class BicycleController(Controller):
             steer = np.clip(steer, -np.pi / 6, np.pi / 6)
 
         # low-pass filter
-        alpha = 1  # filter coefficient
+        alpha = 0.5  # filter coefficient
         velocity = alpha * velocity + (1 - alpha) * self.__prev_input.velocity
         steer = alpha * steer + (1 - alpha) * self.__prev_input.steer
 
@@ -391,8 +391,8 @@ class BicycleController(Controller):
         # argmin_u: (u-u_nom)@P@(u-u_nom)
         # st. Gu <= h
 
-        # make constraints  
-        alpha = 1
+        # make constraints
+        alpha = 0.5
         coeff_inputs = (
             state.x,
             state.y,
@@ -405,26 +405,24 @@ class BicycleController(Controller):
                 [
                     -self.__coeff_a(*coeff_inputs),
                     -self.__coeff_omega(*coeff_inputs),
-                ]
+                ],
             ]
         )
-        h = np.array([[self.__constant_term(*coeff_inputs)]])
+        h = np.array(
+            [
+                [self.__constant_term(*coeff_inputs)],
+            ]
+        )
 
         # make cost function
-        norm_G = G / np.linalg.norm(G)
-        max_tendency = 0.01
-        if norm_G @ np.array([[0], [1]]) >= 0:
-            tendency = (
-                -max_tendency
-                * abs(float(norm_G @ np.array([[1], [0]])))
-                * np.sign(prev_velocity)
-            )
-        else:
-            tendency = (
-                max_tendency
-                * abs(float(norm_G @ np.array([[1], [0]])))
-                * np.sign(prev_velocity)
-            )
+        norm_G = G / (np.linalg.norm(G) + 1e-6)
+        max_tendency = 0.1
+        tendency = (
+            (1 if float(norm_G @ np.array([[0], [-1]])) >= 0 else -1)
+            * max_tendency
+            * abs(float(norm_G @ np.array([[1], [0]])))
+            * np.sign(prev_velocity)
+        )
         print(f"Safety filter tendency: {tendency:.2f}")
 
         P = np.array(

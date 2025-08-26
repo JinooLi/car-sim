@@ -1,5 +1,5 @@
 # Base image
-FROM python:latest
+FROM python:3.13-bookworm
 
 # Install required packages for poetry, sudo and non-root user creation
 RUN apt-get update && apt-get install -y \

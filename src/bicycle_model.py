@@ -390,7 +390,7 @@ class BicycleController(Controller):
         # st. Gu <= h
 
         # make constraints
-        alpha = 0.5
+        alpha = 0.7
         coeff_inputs = (
             state.x,
             state.y,
@@ -404,16 +404,20 @@ class BicycleController(Controller):
                     -self.__coeff_a(*coeff_inputs),
                     -self.__coeff_omega(*coeff_inputs),
                 ],
+                [2 * prev_velocity, 0],
+                [0, 2 * prev_steer_angle],
             ]
         )
         h = np.array(
             [
                 [self.__constant_term(*coeff_inputs)],
+                [2 * (25 - prev_velocity**2)],
+                [2 * ((np.pi / 6)**2 - prev_steer_angle**2)]
             ]
         )
 
         # make cost function
-        norm_G = G / (np.linalg.norm(G) + 1e-6)
+        norm_G = G[1] / (np.linalg.norm(G[1]) + 1e-6)
         max_tendency = 0.1
         tendency = (
             (1 if float(norm_G @ np.array([[0], [-1]])) >= 0 else -1)

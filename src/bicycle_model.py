@@ -163,30 +163,11 @@ class BicycleController(Controller):
             BicycleInput: _description_
         """
 
-        # Rotate the state and target position to align with the target angle
-        rotation_matrix = np.array(
-            [
-                [np.cos(-self.target_angle), -np.sin(-self.target_angle)],
-                [np.sin(-self.target_angle), np.cos(-self.target_angle)],
-            ]
-        )
-
-        position_vector = np.array([state.x, state.y])
-        target_position_vector = np.array(self.target_position)
-
-        x_transformed, y_transformed = tuple(rotation_matrix @ position_vector)
-        target_transformed = tuple(rotation_matrix @ target_position_vector)
-
-        state_transformed = BicycleState(
-            x=x_transformed,
-            y=y_transformed,
-            theta=angle_limiter(state.theta - self.target_angle),
-        )
-
         velocity, steer = self.__ref_controller(
-            state_transformed,
+            state,
+            target_angle=self.target_angle,
+            target_position=self.target_position,
             max_speed=5.0,
-            target_position=target_transformed,
             gamma=1.0,
             beta=2.9,
             h=2.0,
@@ -222,8 +203,9 @@ class BicycleController(Controller):
     def __ref_controller(
         self,
         state: BicycleState,
+        target_position: tuple[float, float],
+        target_angle: float,
         max_speed: float,
-        target_position: tuple[float, float] = (0.0, 0.0),
         gamma: float = 1.0,
         beta: float = 2.9,
         h: float = 2.0,
@@ -234,8 +216,9 @@ class BicycleController(Controller):
 
         Args:
             state (BicycleState): Current state of the bicycle.
-            max_speed (float): Maximum speed of the bicycle.
             target_position (tuple[float, float]): Target position (x, y) for the bicycle.
+            target_angle (float): Target heading angle for the bicycle.
+            max_speed (float): Maximum speed of the bicycle.
             gamma (float): Proportional gain for position control.
             beta (float): Proportional gain for steering control.
             h (float): Feedforward gain for steering control.
@@ -243,10 +226,25 @@ class BicycleController(Controller):
         Returns:
             tuple[float, float]: A tuple containing the velocity and steering angle.
         """
-        tp = target_position
-        x = state.x
-        y = state.y
-        theta = state.theta
+        # Rotate the state and target position to align with the target angle
+        rotation_matrix = np.array(
+            [
+                [np.cos(-target_angle), -np.sin(-target_angle)],
+                [np.sin(-target_angle), np.cos(-target_angle)],
+            ]
+        )
+
+        position_vector = np.array([state.x, state.y])
+        target_position_vector = np.array(target_position)
+
+        x_transformed, y_transformed = tuple(rotation_matrix @ position_vector)
+        target_transformed = tuple(rotation_matrix @ target_position_vector)
+
+        # redefine for simplicity
+        tp = target_transformed
+        x = x_transformed
+        y = y_transformed
+        theta = angle_limiter(state.theta - target_angle)
 
         pos_error = np.sqrt((tp[0] - x) ** 2 + (tp[1] - y) ** 2)
         goal_angle = np.arctan2(tp[1] - y, tp[0] - x)

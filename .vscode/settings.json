@@ -8,6 +8,7 @@
     "coeff",
     "colorbar",
     "cvxopt",
+    "dotdelta",
     "dotphi",
     "dotpsi",
     "dotv",

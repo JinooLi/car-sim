@@ -390,13 +390,12 @@ class BicycleController(Controller):
         # st. Gu <= h
 
         # make constraints
-        alpha = 0.7
         coeff_inputs = (
             state.x,
             state.y,
             state.theta,
-            alpha * input_velocity + (1 - alpha) * prev_velocity,
-            alpha * input_steer_angle + (1 - alpha) * prev_steer_angle,
+            prev_velocity,
+            prev_steer_angle,
         )
         G = np.array(
             [
@@ -411,8 +410,8 @@ class BicycleController(Controller):
         h = np.array(
             [
                 [self.__constant_term(*coeff_inputs)],
-                [2 * (25 - prev_velocity**2)],
-                [2 * ((np.pi / 6)**2 - prev_steer_angle**2)]
+                [2 * (5**2 - prev_velocity**2)],
+                [2 * ((np.pi / 6) ** 2 - prev_steer_angle**2)],
             ]
         )
 
@@ -433,7 +432,11 @@ class BicycleController(Controller):
         q = -(2 * u_nom.T @ P).T
 
         solvers.options["show_progress"] = False
-        sol = solvers.qp(P=matrix(P), q=matrix(q), G=matrix(G), h=matrix(h))
+        try:
+            sol = solvers.qp(P=matrix(P), q=matrix(q), G=matrix(G), h=matrix(h))
+        except:
+            print("Warning: Safety filter QP solver failed.")
+            sol = {"status": "unknown"}
         if sol["status"] != "optimal":
             print("Warning: Safety filter did not find an optimal solution.")
             velocity = input_velocity

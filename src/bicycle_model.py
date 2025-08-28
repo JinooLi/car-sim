@@ -263,7 +263,7 @@ class BicycleController(Controller):
             + beta * steer_error
         ) / pos_error
 
-        steer_angle = np.arctan(c * self.model.wheelbase)
+        steer_angle = np.arctan(c * self.model.wheelbase)  # type: ignore
 
         return velocity, steer_angle
 
@@ -285,11 +285,11 @@ class BicycleController(Controller):
         v = sp.Function("v", real=True)(t)  # velocity
         phi = sp.Function("phi", real=True)(t)  # heading angle
         delta = sp.Function("delta", real=True)(t)  # steering angle
-        l = self.model.wheelbase
+        l = self.model.wheelbase  # type: ignore
 
-        dotx = v * sp.cos(phi)
-        doty = v * sp.sin(phi)
-        dotphi = v * sp.tan(delta) / l
+        dotx = v * sp.cos(phi)  # type: ignore
+        doty = v * sp.sin(phi)  # type: ignore
+        dotphi = v * sp.tan(delta) / l  # type: ignore
         dotv = a
         dotdelta = omega
 
@@ -297,19 +297,19 @@ class BicycleController(Controller):
 
         # Define the safety condition
         h = (
-            (x - obstacle.position[0]) ** 2
-            + (y - obstacle.position[1]) ** 2
-            - obstacle.radius**2
+            (x - obstacle.position[0]) ** 2  # type: ignore
+            + (y - obstacle.position[1]) ** 2  # type: ignore
+            - (obstacle.radius) ** 2
         )
         self.h = sp.lambdify(input_symbols, h, modules="numpy")
 
         # Define differential equations
         substitutions = {
-            x.diff(t): dotx,
-            y.diff(t): doty,
-            phi.diff(t): dotphi,
-            v.diff(t): dotv,
-            delta.diff(t): dotdelta,
+            x.diff(t): dotx,  # type: ignore
+            y.diff(t): doty,  # type: ignore
+            phi.diff(t): dotphi,  # type: ignore
+            v.diff(t): dotv,  # type: ignore
+            delta.diff(t): dotdelta,  # type: ignore
         }
 
         h_1 = h.diff(t) + k1 * h
@@ -516,14 +516,14 @@ class BicycleSimulator(Simulator):
                 prev_input_signal = input_signal
                 input_signal = self.controller.control(state)
                 control_time += self.control_time_step
-            state = self.__RK4_step(state, input_signal)
+            state = self.__RK4_step(state, input_signal)  # type: ignore
             t += self.time_step
 
             # save results
             result.append_state(state)
-            barrier_data = self.get_barrier_data(state, input_signal, prev_input_signal)
-            result.append_barrier_data(barrier_data)
-            result.append_input_data(input_signal)
+            barrier_data = self.get_barrier_data(state, input_signal, prev_input_signal)  # type: ignore
+            result.append_barrier_data(barrier_data)  # type: ignore
+            result.append_input_data(input_signal)  # type: ignore
         print(f"Simulation completed.")
         return result
 
@@ -534,7 +534,7 @@ class BicycleSimulator(Simulator):
         k2 = self.model.differential(state + k1 * (self.time_step / 2), input_signal)
         k3 = self.model.differential(state + k2 * (self.time_step / 2), input_signal)
         k4 = self.model.differential(state + k3 * self.time_step, input_signal)
-        output = state + (k1 + 2 * k2 + 2 * k3 + k4) * (self.time_step / 6)
+        output = state + (k1 + 2 * k2 + 2 * k3 + k4) * (self.time_step / 6)  # type: ignore
         output.theta = angle_limiter(output.theta)  # Limit angle
         return output
 
@@ -559,19 +559,19 @@ class BicycleSimulator(Simulator):
             acceleration,
             omega,
         )
-        h = self.controller.h(*h_inputs)  # Update safety filter state
-        h1 = self.controller.h1(*h_inputs)
-        h2 = self.controller.h2(*h_inputs)
-        h3 = self.controller.h3(*h_inputs)
+        h = self.controller.h(*h_inputs)  # Update safety filter state # type: ignore
+        h1 = self.controller.h1(*h_inputs)  # type: ignore
+        h2 = self.controller.h2(*h_inputs)  # type: ignore
+        h3 = self.controller.h3(*h_inputs)  # type: ignore
 
-        return (h, h1, h2, h3)
+        return (h, h1, h2, h3)  # type: ignore
 
 
 class BicycleVisualizer(Visualizer):
     def __init__(
         self,
         model: BicycleModel,
-        obstacle: Obstacle = None,
+        obstacle: Obstacle | None = None,
         fps: int = 30,
     ):
         """
@@ -601,8 +601,8 @@ class BicycleVisualizer(Visualizer):
 
         print(f"Visualizing simulation results with {len(states)} states.")
 
-        state_x = [state.x for state in states]
-        state_y = [state.y for state in states]
+        state_x = [state.x for state in states]  # type: ignore
+        state_y = [state.y for state in states]  # type: ignore
 
         # set car shape parameters
         car_length = self.model.wheelbase
@@ -632,13 +632,13 @@ class BicycleVisualizer(Visualizer):
         ax.legend()
 
         if self.obstacle is not None:
-            circle = plt.Circle(
+            circle = plt.Circle(  # type: ignore
                 (self.obstacle.position[0], self.obstacle.position[1]),
                 self.obstacle.radius,
                 color="red",
             )
             ax.add_patch(circle)
-        car = plt.Rectangle(
+        car = plt.Rectangle(  # type: ignore
             (0, -car_width / 2),
             car_length,
             car_width,
@@ -653,15 +653,15 @@ class BicycleVisualizer(Visualizer):
         theta_fps_history = []
         t = 0
         frame_interval = 1 / self.fps
-        x_fps_history.append(states[0].x)
-        y_fps_history.append(states[0].y)
-        theta_fps_history.append(states[0].theta)
+        x_fps_history.append(states[0].x)  # type: ignore
+        y_fps_history.append(states[0].y)  # type: ignore
+        theta_fps_history.append(states[0].theta)  # type: ignore
         for i in range(len(states)):
             t += time_step
             if t >= frame_interval:
-                x_fps_history.append(states[i].x)
-                y_fps_history.append(states[i].y)
-                theta_fps_history.append(states[i].theta)
+                x_fps_history.append(states[i].x)  # type: ignore
+                y_fps_history.append(states[i].y)  # type: ignore
+                theta_fps_history.append(states[i].theta)  # type: ignore
                 t -= frame_interval
 
         def animate(i):
@@ -696,13 +696,13 @@ class BicycleVisualizer(Visualizer):
         cols = 2
         time_points = np.arange(0, simulation_time, time_step)
         fig2, axs = plt.subplots(rows, cols, figsize=figsize, sharex=True)
-        axs[0, 0].plot(time_points, [s.x for s in states], label="x")
+        axs[0, 0].plot(time_points, [s.x for s in states], label="x")  # type: ignore
         axs[0, 0].set_ylabel("x position")
         axs[0, 0].legend()
-        axs[1, 0].plot(time_points, [s.y for s in states], label="y")
+        axs[1, 0].plot(time_points, [s.y for s in states], label="y")  # type: ignore
         axs[1, 0].set_ylabel("y position")
         axs[1, 0].legend()
-        axs[2, 0].plot(time_points, [s.theta for s in states], label="theta")
+        axs[2, 0].plot(time_points, [s.theta for s in states], label="theta")  # type: ignore
         axs[2, 0].set_ylabel("theta (rad)")
         axs[2, 0].legend()
         axs[3, 0].plot(time_points, [s.velocity for s in input_data], label="v")

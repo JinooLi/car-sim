@@ -25,5 +25,6 @@
   "[python]": {
     "editor.formatOnSave": true,
     "editor.defaultFormatter": "ms-python.black-formatter"
-  }
+  },
+  "python.defaultInterpreterPath": "/home/vscode/.cache/pypoetry/virtualenvs/car-sim-for-cbf-7mr7adEn-py3.13/bin/python"
 }

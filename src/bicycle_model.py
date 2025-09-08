@@ -21,17 +21,19 @@ def angle_limiter(angle):
 
 
 class BicycleState(State):
-    def __init__(self, x=0.0, y=0.0, theta=0.0):
+    def __init__(self, x=0.0, y=0.0, theta=0.0, velocity=0.0):
         super().__init__()
         self.x = x
         self.y = y
         self.theta = theta
+        self.velocity = velocity
 
     def __add__(self, other):
         return BicycleState(
             self.x + other.x,
             self.y + other.y,
             self.theta + other.theta,
+            self.velocity + other.velocity,
         )
 
     __radd__ = __add__
@@ -42,6 +44,7 @@ class BicycleState(State):
                 self.x * other,
                 self.y * other,
                 self.theta * other,
+                self.velocity * other,
             )
         elif isinstance(other, BicycleState):
             # Element-wise multiplication for two states
@@ -49,6 +52,7 @@ class BicycleState(State):
                 self.x * other.x,
                 self.y * other.y,
                 self.theta * other.theta,
+                self.velocity * other.velocity,
             )
         else:
             raise TypeError("Unsupported type for multiplication with BicycleState")
@@ -61,6 +65,7 @@ class BicycleState(State):
                 self.x / other,
                 self.y / other,
                 self.theta / other,
+                self.velocity / other,
             )
         elif isinstance(other, BicycleState):
             # Element-wise division for two states
@@ -68,16 +73,17 @@ class BicycleState(State):
                 self.x / other.x,
                 self.y / other.y,
                 self.theta / other.theta,
+                self.velocity / other.velocity,
             )
         else:
             raise TypeError("Unsupported type for division with BicycleState")
 
 
 class BicycleInput(Input):
-    def __init__(self, steer=0.0, velocity=0.0):
+    def __init__(self, steer=0.0, acceleration=0.0):
         super().__init__()
         self.steer = steer
-        self.velocity = velocity
+        self.acceleration = acceleration
 
 
 class BicycleModel(Model):
@@ -97,9 +103,10 @@ class BicycleModel(Model):
         """
         # Bicycle model differential equations
         dstate = BicycleState()
-        dstate.x = input.velocity * np.cos(state.theta)
-        dstate.y = input.velocity * np.sin(state.theta)
-        dstate.theta = input.velocity * np.tan(input.steer) / self.wheelbase
+        dstate.x = state.velocity * np.cos(state.theta)
+        dstate.y = state.velocity * np.sin(state.theta)
+        dstate.theta = state.velocity * np.tan(input.steer) / self.wheelbase
+        dstate.velocity = input.acceleration
         return dstate
 
 
@@ -163,7 +170,7 @@ class BicycleController(Controller):
             BicycleInput: _description_
         """
 
-        velocity, steer = self.__ref_controller(
+        acceleration, steer = self.__ref_controller(
             state,
             target_angle=self.target_angle,
             target_position=self.target_position,
@@ -178,27 +185,29 @@ class BicycleController(Controller):
 
         # Apply safety filter when the option is enabled
         if self.filter:
-            velocity, steer = self.__safety_filter(
+            acceleration, steer = self.__safety_filter(
                 state,
-                velocity,
+                acceleration,
                 steer,
-                self.__prev_input.velocity,
+                self.__prev_input.acceleration,
                 self.__prev_input.steer,
             )
 
-        velocity = np.clip(velocity, -5.0, 5.0)  # Limit max speed
+        # velocity = np.clip(velocity, -5.0, 5.0)  # Limit max speed
         if self.steer_limit:  # Limit steering angle
             steer = np.clip(steer, -np.pi / 6, np.pi / 6)
 
         # low-pass filter
         alpha = 0.5  # filter coefficient
-        velocity = alpha * velocity + (1 - alpha) * self.__prev_input.velocity
+        acceleration = (
+            alpha * acceleration + (1 - alpha) * self.__prev_input.acceleration
+        )
         steer = alpha * steer + (1 - alpha) * self.__prev_input.steer
 
         # save previous input for safety filter
-        self.__prev_input = BicycleInput(steer=steer, velocity=velocity)
+        self.__prev_input = BicycleInput(steer=steer, acceleration=acceleration)
 
-        return BicycleInput(steer=steer, velocity=velocity)
+        return BicycleInput(steer=steer, acceleration=acceleration)
 
     def __ref_controller(
         self,
@@ -242,18 +251,17 @@ class BicycleController(Controller):
 
         # redefine for simplicity
         tp = target_transformed
-        x = x_transformed
-        y = y_transformed
+        x = tp[0] - x_transformed
+        y = tp[1] - y_transformed
         theta = angle_limiter(state.theta - target_angle)
 
-        pos_error = np.sqrt((tp[0] - x) ** 2 + (tp[1] - y) ** 2)
-        goal_angle = np.arctan2(tp[1] - y, tp[0] - x)
+        pos_error = np.sqrt(x**2 + y**2)
+        goal_angle = np.arctan2(y, x)
         steer_error = angle_limiter(goal_angle - theta)
 
-        velocity = gamma * pos_error
-
-        if velocity > max_speed:
-            velocity = max_speed  # Limit maximum velocity
+        acceleration = (gamma**2) * (
+            x * np.cos(theta) + y * np.sin(theta) - 2 * state.velocity
+        )
 
         c = (
             np.sin(steer_error)
@@ -265,7 +273,7 @@ class BicycleController(Controller):
 
         steer_angle = np.arctan(c * self.model.wheelbase)  # type: ignore
 
-        return velocity, steer_angle
+        return acceleration, steer_angle
 
     def __init_safety_filter(self, obstacle: Obstacle, k1: float, k2: float, k3: float):
         """Initialize the safety filter parameters.
@@ -278,11 +286,12 @@ class BicycleController(Controller):
         """
         print("Initializing safety filter...")
         t = sp.symbols("t")
-        a = sp.symbols("a", real=True)
         omega = sp.symbols("omega", real=True)
+        j = sp.symbols("j", real=True)
         x = sp.Function("x", real=True)(t)
         y = sp.Function("y", real=True)(t)
         v = sp.Function("v", real=True)(t)  # velocity
+        a = sp.Function("a", real=True)(t)
         phi = sp.Function("phi", real=True)(t)  # heading angle
         delta = sp.Function("delta", real=True)(t)  # steering angle
         l = self.model.wheelbase  # type: ignore
@@ -292,8 +301,9 @@ class BicycleController(Controller):
         dotphi = v * sp.tan(delta) / l  # type: ignore
         dotv = a
         dotdelta = omega
+        dota = j
 
-        input_symbols = (x, y, phi, v, delta, a, omega)
+        input_symbols = (x, y, phi, v, delta, a, omega, j)
 
         # Define the safety condition
         h = (
@@ -310,6 +320,7 @@ class BicycleController(Controller):
             phi.diff(t): dotphi,  # type: ignore
             v.diff(t): dotv,  # type: ignore
             delta.diff(t): dotdelta,  # type: ignore
+            a.diff(t): dota,  # type: ignore
         }
 
         h_1 = h.diff(t) + k1 * h
@@ -329,6 +340,7 @@ class BicycleController(Controller):
             phi: sp.symbols("phi", real=True),
             v: sp.symbols("v", real=True),
             delta: sp.symbols("delta", real=True),
+            a: sp.symbols("a", real=True),
         }
 
         x = sp.symbols("x", real=True)
@@ -336,15 +348,16 @@ class BicycleController(Controller):
         phi = sp.symbols("phi", real=True)
         v = sp.symbols("v", real=True)
         delta = sp.symbols("delta", real=True)
+        a = sp.symbols("a", real=True)
 
         h_3 = h_3.subs(substitutions)
 
-        constant_term = h_3.subs({a: 0, omega: 0}).simplify()
-        coeff_a = (h_3 - h_3.subs({a: 0})).simplify().subs({a: 1})
+        constant_term = h_3.subs({j: 0, omega: 0}).simplify()
+        coeff_j = (h_3 - h_3.subs({j: 0})).simplify().subs({j: 1})
         coeff_omega = (h_3 - h_3.subs({omega: 0})).simplify().subs({omega: 1})
 
-        input_symbols = (x, y, phi, v, delta)
-        self.__coeff_a = sp.lambdify(input_symbols, coeff_a, modules="numpy")
+        input_symbols = (x, y, phi, v, delta, a)
+        self.__coeff_j = sp.lambdify(input_symbols, coeff_j, modules="numpy")
         self.__coeff_omega = sp.lambdify(input_symbols, coeff_omega, modules="numpy")
         self.__constant_term = sp.lambdify(
             input_symbols, constant_term, modules="numpy"
@@ -354,9 +367,9 @@ class BicycleController(Controller):
     def __safety_filter(
         self,
         state: BicycleState,
-        input_velocity: float,
+        input_acceleration: float,
         input_steer_angle: float,
-        prev_velocity: float,
+        prev_acceleration: float,
         prev_steer_angle: float,
     ) -> tuple[float, float]:
         """Safety filter to ensure the bicycle does not exceed certain limits.
@@ -372,16 +385,16 @@ class BicycleController(Controller):
             tuple[float, float]: A tuple containing the filtered velocity and steering angle.
         """
         print(
-            f"Safety filter: input_velocity={input_velocity:.2f}, input_steer_angle={input_steer_angle/np.pi:.2f}*pi"
+            f"Safety filter: input_acceleration={input_acceleration:.2f}, input_steer_angle={input_steer_angle/np.pi:.2f}*pi"
         )
 
         # Assume the acceleration and steer angular velocity by the difference from previous input
-        a_nom = (input_velocity - prev_velocity) / self.controller_time_step
+        j_nom = (input_acceleration - prev_acceleration) / self.controller_time_step
         omega_nom = (input_steer_angle - prev_steer_angle) / self.controller_time_step
 
         u_nom = np.array(
             [
-                [a_nom],
+                [j_nom],
                 [omega_nom],
             ]
         )
@@ -394,35 +407,46 @@ class BicycleController(Controller):
             state.x,
             state.y,
             state.theta,
-            prev_velocity,
+            state.velocity,
             prev_steer_angle,
+            prev_acceleration,
         )
         G = np.array(
             [
                 [
-                    -self.__coeff_a(*coeff_inputs),
+                    -self.__coeff_j(*coeff_inputs),
                     -self.__coeff_omega(*coeff_inputs),
                 ],
-                [2 * prev_velocity, 0],
+                [2 * state.velocity, 0],
                 [0, 2 * prev_steer_angle],
             ]
         )
         h = np.array(
             [
                 [self.__constant_term(*coeff_inputs)],
-                [2 * (5**2 - prev_velocity**2)],
+                [
+                    5**2
+                    - (
+                        2 * prev_acceleration**2
+                        + 2 * state.velocity * prev_acceleration
+                        + state.velocity**2
+                    )
+                ],
                 [2 * ((np.pi / 6) ** 2 - prev_steer_angle**2)],
             ]
         )
 
         # make cost function
         norm_G = G[1] / (np.linalg.norm(G[1]) + 1e-6)
-        max_tendency = 0.1
+        if self.h(*coeff_inputs, 0, 0) > 15.0:
+            max_tendency = 0.0
+        else:
+            max_tendency = 0.00
         tendency = (
             (1 if float(norm_G @ np.array([[0], [-1]])) >= 0 else -1)
             * max_tendency
             * abs(float(norm_G @ np.array([[1], [0]])))
-            * np.sign(prev_velocity)
+            * np.sign(prev_acceleration)
         )
         print(f"Safety filter tendency: {tendency:.2f}")
 
@@ -439,12 +463,12 @@ class BicycleController(Controller):
             sol = {"status": "unknown"}
         if sol["status"] != "optimal":
             print("Warning: Safety filter did not find an optimal solution.")
-            velocity = input_velocity
+            acceleration = input_acceleration
             steer_angle = input_steer_angle
         else:
             filtered_input = np.array(sol["x"]).flatten()
-            a, omega = filtered_input[0], filtered_input[1]
-            velocity = prev_velocity + self.controller_time_step * a
+            j, omega = filtered_input[0], filtered_input[1]
+            acceleration = prev_acceleration + self.controller_time_step * j
             steer_angle = prev_steer_angle + self.controller_time_step * omega
 
         steer_angle = np.clip(
@@ -453,10 +477,10 @@ class BicycleController(Controller):
 
         print(f"state:{state.x:.2f}, {state.y:.2f}, {state.theta/np.pi:.2f}*pi")
         print(
-            f"Safety filter: velocity={velocity:.2f}, steer_angle={steer_angle/np.pi:.2f}*pi"
+            f"Safety filter: velocity={acceleration:.2f}, steer_angle={steer_angle/np.pi:.2f}*pi"
         )
 
-        return velocity, steer_angle  # Placeholder for safety filter logic
+        return acceleration, steer_angle  # Placeholder for safety filter logic
 
 
 class BicycleSimResult(SimulateResult):
@@ -550,17 +574,18 @@ class BicycleSimulator(Simulator):
         omega = (
             input_signal.steer - prev_input_signal.steer
         ) / self.controller.controller_time_step
-        acceleration = (
-            input_signal.velocity - prev_input_signal.velocity
+        jerk = (
+            input_signal.acceleration - prev_input_signal.acceleration
         ) / self.controller.controller_time_step
         h_inputs = (
             state.x,
             state.y,
             state.theta,
-            input_signal.velocity,
+            state.velocity,
             input_signal.steer,
-            acceleration,
+            input_signal.acceleration,
             omega,
+            jerk,
         )
         h = self.controller.h(*h_inputs)  # Update safety filter state # type: ignore
         h1 = self.controller.h1(*h_inputs)  # type: ignore
@@ -708,8 +733,8 @@ class BicycleVisualizer(Visualizer):
         axs[2, 0].plot(time_points, [s.theta for s in states], label="theta")  # type: ignore
         axs[2, 0].set_ylabel("theta (rad)")
         axs[2, 0].legend()
-        axs[3, 0].plot(time_points, [s.velocity for s in input_data], label="v")
-        axs[3, 0].set_ylabel("velocity (m/s)")
+        axs[3, 0].plot(time_points, [s.acceleration for s in input_data], label="a")
+        axs[3, 0].set_ylabel("acceleration (m/s^2)")
         axs[3, 0].legend()
         axs[4, 0].plot(time_points, [s.steer for s in input_data], label="steer")
         axs[4, 0].set_ylabel("steer (rad)")
